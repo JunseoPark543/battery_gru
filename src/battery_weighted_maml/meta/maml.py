@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -52,39 +53,52 @@ def adapt_source_task(
     dataset = PrefixFutureDataset(task.support_soh)
     inner_optimizer = torch.optim.SGD(model.parameters(), lr=inner_lr)
     support_losses: list[torch.Tensor] = []
-    with higher.innerloop_ctx(
-        model,
-        inner_optimizer,
-        copy_initial_weights=False,
-        track_higher_grads=full_maml,
-    ) as (functional_model, differentiable_optimizer):
-        for _ in range(inner_steps):
-            batch = sample_support_batch(dataset, inner_batch_size, generator, device)
-            support_loss = _loss_on_batch(
-                functional_model, batch, teacher_forcing_ratio, generator
-            )
-            if not torch.isfinite(support_loss):
-                raise FloatingPointError(
-                    f"non-finite source support loss for task {task.file_name}: {support_loss}"
+    # CuDNN RNN kernels do not implement the double backward required by full
+    # MAML. Disable CuDNN only for the differentiable source adaptation/query
+    # forwards; CUDA tensors and the rest of the experiment still use the GPU.
+    rnn_backend = (
+        torch.backends.cudnn.flags(enabled=False)
+        if device.type == "cuda" and full_maml
+        else nullcontext()
+    )
+    with rnn_backend:
+        with higher.innerloop_ctx(
+            model,
+            inner_optimizer,
+            copy_initial_weights=False,
+            track_higher_grads=full_maml,
+        ) as (functional_model, differentiable_optimizer):
+            for _ in range(inner_steps):
+                batch = sample_support_batch(dataset, inner_batch_size, generator, device)
+                support_loss = _loss_on_batch(
+                    functional_model, batch, teacher_forcing_ratio, generator
                 )
-            differentiable_optimizer.step(support_loss)
-            support_losses.append(support_loss)
-        history = torch.tensor(task.support_soh, dtype=torch.float32, device=device).view(1, -1, 1)
-        query = torch.tensor(task.query_soh, dtype=torch.float32, device=device).view(1, -1, 1)
-        lengths = torch.tensor([history.shape[1]], dtype=torch.long, device=device)
-        predictions = functional_model(
-            history,
-            lengths,
-            future_targets=query,
-            teacher_forcing_ratio=teacher_forcing_ratio,
-            generator=generator,
-        )
-        query_loss = (predictions - query).square().mean()
-        if not torch.isfinite(query_loss):
-            raise FloatingPointError(
-                f"non-finite source query loss for task {task.file_name}: {query_loss}"
+                if not torch.isfinite(support_loss):
+                    raise FloatingPointError(
+                        f"non-finite source support loss for task {task.file_name}: {support_loss}"
+                    )
+                differentiable_optimizer.step(support_loss)
+                support_losses.append(support_loss)
+            history = torch.tensor(
+                task.support_soh, dtype=torch.float32, device=device
+            ).view(1, -1, 1)
+            query = torch.tensor(
+                task.query_soh, dtype=torch.float32, device=device
+            ).view(1, -1, 1)
+            lengths = torch.tensor([history.shape[1]], dtype=torch.long, device=device)
+            predictions = functional_model(
+                history,
+                lengths,
+                future_targets=query,
+                teacher_forcing_ratio=teacher_forcing_ratio,
+                generator=generator,
             )
-        mean_support = torch.stack(support_losses).mean()
+            query_loss = (predictions - query).square().mean()
+            if not torch.isfinite(query_loss):
+                raise FloatingPointError(
+                    f"non-finite source query loss for task {task.file_name}: {query_loss}"
+                )
+            mean_support = torch.stack(support_losses).mean()
     return TaskMetaLoss(task.file_name, mean_support, query_loss)
 
 
