@@ -5,7 +5,6 @@ __pycache__/
 .coverage
 .venv/
 venv/
-outputs/
 data/CALCE/*.pkl
 data/Life labels/*.json
 

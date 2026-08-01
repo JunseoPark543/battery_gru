@@ -1,0 +1,136 @@
+{
+  "started_at_utc": "2026-08-01T09:48:06.196322+00:00",
+  "python_version": "3.14.5",
+  "pytorch_version": "2.13.0+cpu",
+  "cuda_version": null,
+  "gpu_name": null,
+  "os": "Windows-11-10.0.26200-SP0",
+  "package_versions": {
+    "torch": "2.13.0",
+    "numpy": "2.4.6",
+    "pandas": "3.0.3",
+    "scipy": "1.17.1",
+    "scikit-learn": "1.8.0",
+    "matplotlib": "3.10.9",
+    "PyYAML": "6.0.3",
+    "tqdm": "4.70.0",
+    "cvxpy": "1.9.2",
+    "osqp": "1.1.3",
+    "scs": "3.2.11",
+    "higher": "0.2.1"
+  },
+  "seed": 42,
+  "command": "scripts/run_single.py --target CALCE_CX2_37.pkl --history-length 50 --source-mode same_family --config configs/base.yaml --smoke-test",
+  "git_commit": "c28639c35c9af437f4b79a3aad68a28b66d95da6",
+  "target": "CALCE_CX2_37.pkl",
+  "sources": [
+    "CALCE_CX2_16.pkl",
+    "CALCE_CX2_33.pkl",
+    "CALCE_CX2_34.pkl",
+    "CALCE_CX2_35.pkl",
+    "CALCE_CX2_36.pkl",
+    "CALCE_CX2_38.pkl"
+  ],
+  "history_length": 50,
+  "source_mode": "same_family",
+  "resolved_config": {
+    "seed": 42,
+    "device": "auto",
+    "data": {
+      "calce_dir": "data/CALCE",
+      "label_path": "data/Life labels/CALCE_labels.json",
+      "eol_threshold": 0.8,
+      "history_lengths": [
+        50
+      ],
+      "max_forecast_cycle": 60
+    },
+    "model": {
+      "input_size": 1,
+      "hidden_size": 64,
+      "num_layers": 1,
+      "dropout": 0.0,
+      "teacher_forcing_ratio": 0.5
+    },
+    "maml": {
+      "full_maml": true,
+      "inner_steps": 1,
+      "inner_lr": 0.05,
+      "inner_batch_size": 64,
+      "outer_lr": 0.001,
+      "meta_iterations": 2,
+      "gradient_clip_norm": 5.0
+    },
+    "weights": {
+      "method": "mmd_qp",
+      "kernel": "rbf",
+      "sigma": "median",
+      "qp_solver_primary": "OSQP",
+      "qp_solver_fallback": "SCS",
+      "diagonal_jitter": 1e-08,
+      "recompute_every_iteration": true,
+      "detach_alpha": true
+    },
+    "adaptation": {
+      "fast_steps": 1,
+      "full_max_steps": 2,
+      "full_patience": 2,
+      "learning_rate": 0.05
+    },
+    "logging": {
+      "log_interval": 1,
+      "checkpoint_interval": 1,
+      "save_alpha_interval": 1
+    },
+    "evaluation": {
+      "primary_adaptation": "full",
+      "save_per_cycle_predictions": true
+    },
+    "source_mode": "same_family"
+  },
+  "status": "completed",
+  "completed_at_utc": "2026-08-01T09:48:32.065423+00:00",
+  "fast_metrics": {
+    "mae": 0.7627314016796057,
+    "rmse": 0.763264965096172,
+    "r2": -149247.30760155266,
+    "r2_nan_reason": null,
+    "max_absolute_error": 0.8275626865050772,
+    "final_cycle_absolute_error": 0.7361421506992486,
+    "pre_eol_mae": 0.7627314016796057,
+    "post_eol_mae": NaN,
+    "prediction_point_count": 10,
+    "true_eol_cycle": 579,
+    "predicted_eol_cycle_discrete": 51.0,
+    "predicted_eol_cycle_interpolated": 50.18786386909179,
+    "true_rul": 529.0,
+    "predicted_rul": 1.0,
+    "signed_rul_error": -528.0,
+    "absolute_rul_error": 528.0,
+    "relative_absolute_rul_error": 0.998109640831758,
+    "crossing_found": true,
+    "adaptation_mode": "fast"
+  },
+  "full_metrics": {
+    "mae": 0.6044996440983718,
+    "rmse": 0.6060106972385942,
+    "r2": -94083.77260793548,
+    "r2_nan_reason": null,
+    "max_absolute_error": 0.7018478927037696,
+    "final_cycle_absolute_error": 0.5649283748260644,
+    "pre_eol_mae": 0.6044996440983718,
+    "post_eol_mae": NaN,
+    "prediction_point_count": 10,
+    "true_eol_cycle": 579,
+    "predicted_eol_cycle_discrete": 51.0,
+    "predicted_eol_cycle_interpolated": 50.221408873909006,
+    "true_rul": 529.0,
+    "predicted_rul": 1.0,
+    "signed_rul_error": -528.0,
+    "absolute_rul_error": 528.0,
+    "relative_absolute_rul_error": 0.998109640831758,
+    "crossing_found": true,
+    "adaptation_mode": "full"
+  },
+  "best_source_meta_loss_ema": 0.3134808176755905
+}
