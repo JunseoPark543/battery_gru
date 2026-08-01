@@ -100,23 +100,57 @@ def solve_mmd_qp(
     problem = cp.Problem(objective, [alpha_variable >= 0, cp.sum(alpha_variable) == 1])
     failures: list[str] = []
     status = "not_solved"
+    solved_weights: np.ndarray | None = None
     for solver in dict.fromkeys([primary_solver, fallback_solver]):
         try:
-            problem.solve(solver=solver, verbose=False, warm_start=False)
+            solver_options: dict[str, float | int | bool] = {}
+            if solver.upper() == "OSQP":
+                # OSQP's loose default tolerances can report ``optimal`` while
+                # violating alpha >= 0 by around 1e-5. Full MAML recomputes this
+                # QP thousands of times, so request a high-accuracy solution.
+                solver_options = {
+                    "eps_abs": 1e-8,
+                    "eps_rel": 1e-8,
+                    "max_iter": 100_000,
+                    "polishing": True,
+                }
+            elif solver.upper() == "SCS":
+                solver_options = {"eps": 1e-7, "max_iters": 100_000}
+            problem.solve(
+                solver=solver,
+                verbose=False,
+                warm_start=False,
+                **solver_options,
+            )
             status = f"{solver}:{problem.status}"
             log.debug("MMD QP solver status: %s", status)
             if problem.status in {cp.OPTIMAL, cp.OPTIMAL_INACCURATE} and alpha_variable.value is not None:
+                candidate = np.asarray(alpha_variable.value, dtype=np.float64).reshape(-1)
+                if not np.all(np.isfinite(candidate)):
+                    message = f"{status}:non-finite alpha={candidate}"
+                    failures.append(message)
+                    log.error("MMD QP solution rejected: %s", message)
+                    continue
+                if np.any(candidate < -tolerance):
+                    message = f"{status}:constraint violation alpha={candidate}"
+                    failures.append(message)
+                    log.error("MMD QP solution rejected; trying fallback: %s", message)
+                    continue
+                if not np.isclose(candidate.sum(), 1.0, atol=tolerance):
+                    message = f"{status}:invalid alpha sum={candidate.sum()}"
+                    failures.append(message)
+                    log.error("MMD QP solution rejected; trying fallback: %s", message)
+                    continue
+                solved_weights = candidate
                 break
             failures.append(status)
         except Exception as exc:
             message = f"{solver}:{type(exc).__name__}:{exc}"
             failures.append(message)
             log.error("MMD QP solver failed: %s", message)
-    else:
+    if solved_weights is None:
         raise RuntimeError("all MMD QP solvers failed: " + " | ".join(failures))
-    weights = np.asarray(alpha_variable.value, dtype=np.float64).reshape(-1)
-    if not np.all(np.isfinite(weights)):
-        raise RuntimeError(f"MMD QP returned non-finite alpha ({status}): {weights}")
+    weights = solved_weights
     if np.any(weights < -tolerance):
         raise RuntimeError(f"MMD QP returned materially negative alpha ({status}): {weights}")
     weights[(weights < 0) & (weights >= -tolerance)] = 0.0
@@ -170,4 +204,3 @@ def compute_target_aware_weights(
         objective=objective,
         solver_status=status,
     )
-
