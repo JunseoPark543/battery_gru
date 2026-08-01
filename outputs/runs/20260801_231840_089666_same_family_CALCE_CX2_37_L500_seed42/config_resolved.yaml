@@ -19,7 +19,7 @@ maml:
   inner_lr: 0.05
   inner_batch_size: 64
   outer_lr: 0.001
-  meta_iterations: 2300
+  meta_iterations: 900
   gradient_clip_norm: 5.0
 weights:
   method: mmd_qp
