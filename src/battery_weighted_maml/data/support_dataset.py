@@ -47,4 +47,8 @@ class PrefixFutureDataset(Dataset[SupportPair]):
         count = min(batch_size, len(self))
         if count == len(self):
             return torch.arange(len(self), dtype=torch.long)
-        return torch.randperm(len(self), generator=generator)[:count]
+        # A CUDA generator cannot drive a CPU randperm. Sample on the
+        # generator's own device, then return CPU indices for Dataset access.
+        return torch.randperm(
+            len(self), generator=generator, device=generator.device
+        )[:count].cpu()

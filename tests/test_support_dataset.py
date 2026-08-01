@@ -26,3 +26,11 @@ def test_masked_mse_excludes_padding():
     mask = torch.tensor([[True, False], [True, False]])
     assert torch.isclose(masked_mse(prediction, target, mask), torch.tensor(2.5))
 
+
+def test_random_support_sampling_uses_generator_device():
+    dataset = PrefixFutureDataset(torch.linspace(1.0, 0.8, 100))
+    generator = torch.Generator(device="cpu").manual_seed(42)
+    indices = dataset.sample_indices(64, generator)
+    assert indices.device.type == "cpu"
+    assert indices.shape == (64,)
+    assert len(torch.unique(indices)) == 64
