@@ -10,6 +10,7 @@ from battery_weighted_maml.config import ExperimentConfig
 from battery_weighted_maml.data.task_views import TargetSupportView
 from battery_weighted_maml.logging_utils import configure_logging
 from battery_weighted_maml.models.gru_seq2seq import GRUSeq2Seq
+from battery_weighted_maml.seed import capture_rng_state, restore_rng_state
 from battery_weighted_maml.training.trainer import WeightedMAMLTrainer
 
 
@@ -35,3 +36,10 @@ def test_trainer_rejects_full_target(parsed_cell, tmp_path):
             torch.device("cpu"), tmp_path, "same_family", configure_logging(None),
         )
 
+
+def test_rng_state_restore_uses_cpu_byte_tensor():
+    state = capture_rng_state()
+    restore_rng_state(state)
+    restored = torch.get_rng_state()
+    assert restored.device.type == "cpu"
+    assert restored.dtype == torch.uint8

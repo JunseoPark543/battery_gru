@@ -36,13 +36,20 @@ def capture_rng_state() -> dict[str, Any]:
 def restore_rng_state(state: dict[str, Any]) -> None:
     random.setstate(state["python"])
     np.random.set_state(state["numpy"])
-    torch.set_rng_state(state["torch"])
+    # ``torch.load(..., map_location='cuda')`` also moves serialized RNG
+    # ByteTensors to CUDA, while the RNG restoration APIs require CPU state
+    # tensors. Normalize them explicitly so CUDA resume remains portable.
+    torch_state = state["torch"].detach().to(device="cpu", dtype=torch.uint8)
+    torch.set_rng_state(torch_state)
     if torch.cuda.is_available() and "cuda" in state:
-        torch.cuda.set_rng_state_all(state["cuda"])
+        cuda_states = [
+            item.detach().to(device="cpu", dtype=torch.uint8)
+            for item in state["cuda"]
+        ]
+        torch.cuda.set_rng_state_all(cuda_states)
 
 
 def make_generator(seed: int, device: str | torch.device = "cpu") -> torch.Generator:
     generator = torch.Generator(device=torch.device(device).type)
     generator.manual_seed(seed)
     return generator
-
