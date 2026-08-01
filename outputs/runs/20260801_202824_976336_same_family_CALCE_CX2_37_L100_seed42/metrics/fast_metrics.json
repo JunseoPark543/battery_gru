@@ -1,0 +1,21 @@
+{
+  "mae": 0.28316025454492605,
+  "rmse": 0.3440908645668268,
+  "r2": -17.58715946718733,
+  "r2_nan_reason": null,
+  "max_absolute_error": 0.5751635391674597,
+  "final_cycle_absolute_error": 0.5568918506698364,
+  "pre_eol_mae": 0.11954568603023141,
+  "post_eol_mae": 0.4693155474630703,
+  "prediction_point_count": 900,
+  "true_eol_cycle": 579,
+  "predicted_eol_cycle_discrete": 278.0,
+  "predicted_eol_cycle_interpolated": 277.00032417412774,
+  "true_rul": 479.0,
+  "predicted_rul": 178.0,
+  "signed_rul_error": -301.0,
+  "absolute_rul_error": 301.0,
+  "relative_absolute_rul_error": 0.6283924843423799,
+  "crossing_found": true,
+  "adaptation_mode": "fast"
+}

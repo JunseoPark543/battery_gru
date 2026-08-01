@@ -1,5 +1,5 @@
 {
-  "started_at_utc": "2026-08-01T11:28:24.977810+00:00",
+  "started_at_utc": "2026-08-01T13:48:02.655911+00:00",
   "python_version": "3.12.3",
   "pytorch_version": "2.13.0+cu130",
   "cuda_version": "13.0",
@@ -20,8 +20,8 @@
     "higher": "0.2.1"
   },
   "seed": 42,
-  "command": "scripts/run_single.py --target CALCE_CX2_37.pkl --history-length 100 --source-mode same_family --config configs/base.yaml",
-  "git_commit": "7be1d9caf9c71ce6914fcb101d48015eb8e4aa75",
+  "command": "scripts/run_single.py --resume outputs/runs/20260801_202824_976336_same_family_CALCE_CX2_37_L100_seed42/checkpoints/last.pt --config configs/l100_2300.yaml",
+  "git_commit": "c7c1bd8cf0bfe26e585b4cda6ae91c7162ec35b9",
   "target": "CALCE_CX2_37.pkl",
   "sources": [
     "CALCE_CX2_16.pkl",
@@ -41,9 +41,7 @@
       "label_path": "data/Life labels/CALCE_labels.json",
       "eol_threshold": 0.8,
       "history_lengths": [
-        50,
-        100,
-        150
+        100
       ],
       "max_forecast_cycle": 1000
     },
@@ -60,7 +58,7 @@
       "inner_lr": 0.05,
       "inner_batch_size": 64,
       "outer_lr": 0.001,
-      "meta_iterations": 10000,
+      "meta_iterations": 2300,
       "gradient_clip_norm": 5.0
     },
     "weights": {
@@ -90,5 +88,49 @@
     },
     "source_mode": "same_family"
   },
-  "status": "running"
+  "status": "completed",
+  "completed_at_utc": "2026-08-01T13:48:04.458581+00:00",
+  "fast_metrics": {
+    "mae": 0.28316025454492605,
+    "rmse": 0.3440908645668268,
+    "r2": -17.58715946718733,
+    "r2_nan_reason": null,
+    "max_absolute_error": 0.5751635391674597,
+    "final_cycle_absolute_error": 0.5568918506698364,
+    "pre_eol_mae": 0.11954568603023141,
+    "post_eol_mae": 0.4693155474630703,
+    "prediction_point_count": 900,
+    "true_eol_cycle": 579,
+    "predicted_eol_cycle_discrete": 278.0,
+    "predicted_eol_cycle_interpolated": 277.00032417412774,
+    "true_rul": 479.0,
+    "predicted_rul": 178.0,
+    "signed_rul_error": -301.0,
+    "absolute_rul_error": 301.0,
+    "relative_absolute_rul_error": 0.6283924843423799,
+    "crossing_found": true,
+    "adaptation_mode": "fast"
+  },
+  "full_metrics": {
+    "mae": 0.08574809737490445,
+    "rmse": 0.10269698589809496,
+    "r2": -0.6557018533910273,
+    "r2_nan_reason": null,
+    "max_absolute_error": 0.21842729989140242,
+    "final_cycle_absolute_error": 0.216024502654528,
+    "pre_eol_mae": 0.04311748333274471,
+    "post_eol_mae": 0.13425181263902444,
+    "prediction_point_count": 900,
+    "true_eol_cycle": 579,
+    "predicted_eol_cycle_discrete": 388.0,
+    "predicted_eol_cycle_interpolated": 387.8551993309171,
+    "true_rul": 479.0,
+    "predicted_rul": 288.0,
+    "signed_rul_error": -191.0,
+    "absolute_rul_error": 191.0,
+    "relative_absolute_rul_error": 0.3987473903966597,
+    "crossing_found": true,
+    "adaptation_mode": "full"
+  },
+  "best_source_meta_loss_ema": 0.00011215683390061053
 }
