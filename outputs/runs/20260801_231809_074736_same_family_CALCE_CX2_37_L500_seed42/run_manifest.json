@@ -1,0 +1,136 @@
+{
+  "started_at_utc": "2026-08-01T14:18:09.076203+00:00",
+  "python_version": "3.12.3",
+  "pytorch_version": "2.13.0+cu130",
+  "cuda_version": "13.0",
+  "gpu_name": "NVIDIA GeForce RTX 5080",
+  "os": "Linux-7.0.0-28-generic-x86_64-with-glibc2.39",
+  "package_versions": {
+    "torch": "2.13.0",
+    "numpy": "2.5.1",
+    "pandas": "3.0.5",
+    "scipy": "1.18.0",
+    "scikit-learn": "1.9.0",
+    "matplotlib": "3.11.1",
+    "PyYAML": "6.0.3",
+    "tqdm": "4.70.0",
+    "cvxpy": "1.9.2",
+    "osqp": "1.1.3",
+    "scs": "3.2.11",
+    "higher": "0.2.1"
+  },
+  "seed": 42,
+  "command": "scripts/run_single.py --target CALCE_CX2_37.pkl --history-length 500 --source-mode same_family --config configs/l500_2300.yaml --smoke-test",
+  "git_commit": "efbea41e3d92a4a9f081161265979a520a97335e",
+  "target": "CALCE_CX2_37.pkl",
+  "sources": [
+    "CALCE_CX2_16.pkl",
+    "CALCE_CX2_33.pkl",
+    "CALCE_CX2_34.pkl",
+    "CALCE_CX2_35.pkl",
+    "CALCE_CX2_36.pkl",
+    "CALCE_CX2_38.pkl"
+  ],
+  "history_length": 500,
+  "source_mode": "same_family",
+  "resolved_config": {
+    "seed": 42,
+    "device": "auto",
+    "data": {
+      "calce_dir": "data/CALCE",
+      "label_path": "data/Life labels/CALCE_labels.json",
+      "eol_threshold": 0.8,
+      "history_lengths": [
+        500
+      ],
+      "max_forecast_cycle": 510
+    },
+    "model": {
+      "input_size": 1,
+      "hidden_size": 64,
+      "num_layers": 1,
+      "dropout": 0.0,
+      "teacher_forcing_ratio": 0.5
+    },
+    "maml": {
+      "full_maml": true,
+      "inner_steps": 1,
+      "inner_lr": 0.05,
+      "inner_batch_size": 64,
+      "outer_lr": 0.001,
+      "meta_iterations": 2,
+      "gradient_clip_norm": 5.0
+    },
+    "weights": {
+      "method": "mmd_qp",
+      "kernel": "rbf",
+      "sigma": "median",
+      "qp_solver_primary": "OSQP",
+      "qp_solver_fallback": "SCS",
+      "diagonal_jitter": 1e-08,
+      "recompute_every_iteration": true,
+      "detach_alpha": true
+    },
+    "adaptation": {
+      "fast_steps": 1,
+      "full_max_steps": 2,
+      "full_patience": 2,
+      "learning_rate": 0.05
+    },
+    "logging": {
+      "log_interval": 1,
+      "checkpoint_interval": 1,
+      "save_alpha_interval": 1
+    },
+    "evaluation": {
+      "primary_adaptation": "full",
+      "save_per_cycle_predictions": true
+    },
+    "source_mode": "same_family"
+  },
+  "status": "completed",
+  "completed_at_utc": "2026-08-01T14:18:25.116515+00:00",
+  "fast_metrics": {
+    "mae": 0.6490783835531175,
+    "rmse": 0.649306754998529,
+    "r2": -914426.250425678,
+    "r2_nan_reason": null,
+    "max_absolute_error": 0.6880280706626419,
+    "final_cycle_absolute_error": 0.6326486497984791,
+    "pre_eol_mae": 0.6490783835531175,
+    "post_eol_mae": NaN,
+    "prediction_point_count": 10,
+    "true_eol_cycle": 579,
+    "predicted_eol_cycle_discrete": 501.0,
+    "predicted_eol_cycle_interpolated": 500.03974282620624,
+    "true_rul": 79.0,
+    "predicted_rul": 1.0,
+    "signed_rul_error": -78.0,
+    "absolute_rul_error": 78.0,
+    "relative_absolute_rul_error": 0.9873417721518988,
+    "crossing_found": true,
+    "adaptation_mode": "fast"
+  },
+  "full_metrics": {
+    "mae": 0.510835806536764,
+    "rmse": 0.51177793311462,
+    "r2": -568082.8327284241,
+    "r2_nan_reason": null,
+    "max_absolute_error": 0.5818740609628205,
+    "final_cycle_absolute_error": 0.482158008204546,
+    "pre_eol_mae": 0.510835806536764,
+    "post_eol_mae": NaN,
+    "prediction_point_count": 10,
+    "true_eol_cycle": 579,
+    "predicted_eol_cycle_discrete": 501.0,
+    "predicted_eol_cycle_interpolated": 500.046997172387,
+    "true_rul": 79.0,
+    "predicted_rul": 1.0,
+    "signed_rul_error": -78.0,
+    "absolute_rul_error": 78.0,
+    "relative_absolute_rul_error": 0.9873417721518988,
+    "crossing_found": true,
+    "adaptation_mode": "full"
+  },
+  "best_source_meta_loss_ema": 0.24136710345745085
+}

@@ -1,0 +1,45 @@
+seed: 42
+device: auto
+data:
+  calce_dir: data/CALCE
+  label_path: data/Life labels/CALCE_labels.json
+  eol_threshold: 0.8
+  history_lengths:
+  - 500
+  max_forecast_cycle: 510
+model:
+  input_size: 1
+  hidden_size: 64
+  num_layers: 1
+  dropout: 0.0
+  teacher_forcing_ratio: 0.5
+maml:
+  full_maml: true
+  inner_steps: 1
+  inner_lr: 0.05
+  inner_batch_size: 64
+  outer_lr: 0.001
+  meta_iterations: 2
+  gradient_clip_norm: 5.0
+weights:
+  method: mmd_qp
+  kernel: rbf
+  sigma: median
+  qp_solver_primary: OSQP
+  qp_solver_fallback: SCS
+  diagonal_jitter: 1.0e-08
+  recompute_every_iteration: true
+  detach_alpha: true
+adaptation:
+  fast_steps: 1
+  full_max_steps: 2
+  full_patience: 2
+  learning_rate: 0.05
+logging:
+  log_interval: 1
+  checkpoint_interval: 1
+  save_alpha_interval: 1
+evaluation:
+  primary_adaptation: full
+  save_per_cycle_predictions: true
+source_mode: same_family
