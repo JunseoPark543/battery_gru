@@ -32,6 +32,22 @@ def _last_finite(value: Any) -> float:
     return float(finite[-1]) if finite.size else float("nan")
 
 
+def _finite_mean(value: Any) -> float:
+    if isinstance(value, pd.DataFrame):
+        raw = value.to_numpy().reshape(-1)
+    elif isinstance(value, (pd.Series, pd.Index)):
+        raw = value.to_numpy().reshape(-1)
+    elif isinstance(value, np.ndarray):
+        raw = value.reshape(-1)
+    elif isinstance(value, (list, tuple)):
+        raw = np.asarray(value, dtype=object).reshape(-1)
+    else:
+        raw = np.asarray([value], dtype=object)
+    numeric = pd.to_numeric(pd.Series(raw), errors="coerce").to_numpy(dtype=float)
+    finite = numeric[np.isfinite(numeric)]
+    return float(finite.mean()) if finite.size else float("nan")
+
+
 def preprocess_cell(
     raw: RawCell,
     true_eol_cycle: int | None = None,
@@ -40,6 +56,7 @@ def preprocess_cell(
     """Convert one raw cell to a sorted, gap-filled SOH trajectory."""
     log = logger or logging.getLogger("battery_weighted_maml")
     by_cycle: dict[int, float] = {}
+    voltage_by_cycle: dict[int, float] = {}
     duplicates: set[int] = set()
     for index, record in enumerate(raw.cycle_records):
         try:
@@ -54,11 +71,14 @@ def preprocess_cell(
                 f"{raw.file_name}: cycle_data[{index}] cycle_number must be a positive integer"
             )
         capacity = _last_finite(record["discharge_capacity_in_Ah"])
+        voltage = _finite_mean(record.get("voltage_in_V", []))
         if cycle in by_cycle:
             duplicates.add(cycle)
         # The last valid duplicate wins; an invalid duplicate does not erase a valid value.
         if np.isfinite(capacity) or cycle not in by_cycle:
             by_cycle[cycle] = capacity
+        if np.isfinite(voltage) or cycle not in voltage_by_cycle:
+            voltage_by_cycle[cycle] = voltage
     if duplicates:
         log.warning(
             "%s: duplicate cycle_number values %s; retained each last valid record",
@@ -79,6 +99,13 @@ def preprocess_cell(
         )
     is_interpolated = original.isna().to_numpy(dtype=bool)
     capacities = interpolated.to_numpy(dtype=np.float64)
+    raw_voltage = pd.Series(voltage_by_cycle, dtype=float).reindex(grid)
+    if raw_voltage.notna().any():
+        mean_voltage_v = raw_voltage.interpolate(
+            method="linear", limit_direction="both"
+        ).to_numpy(dtype=np.float64)
+    else:
+        mean_voltage_v = np.full(len(grid), np.nan, dtype=np.float64)
     soh = capacities / raw.nominal_capacity_ah
     if not np.all(np.isfinite(soh)):
         raise ValueError(f"{raw.file_name}: SOH contains non-finite values after preprocessing")
@@ -99,6 +126,7 @@ def preprocess_cell(
         raw_cycle_count=len(raw.cycle_records),
         missing_count_before=missing_before,
         missing_count_after=missing_after,
+        mean_voltage_v=mean_voltage_v,
     )
 
 
@@ -111,6 +139,7 @@ def trajectory_frame(cell: FullCellTrajectory) -> pd.DataFrame:
             "cycle": cell.cycles,
             "discharge_capacity_Ah": cell.capacities_ah,
             "soh": cell.soh,
+            "mean_voltage_V": cell.mean_voltage_v,
             "is_interpolated": cell.is_interpolated,
             "true_eol_cycle": cell.true_eol_cycle,
         }
@@ -191,4 +220,3 @@ def preprocess_dataset(
     for cell in trajectories.values():
         _plot_cell(cell, figures / f"{Path(cell.file_name).stem}_soh.png")
     return trajectories
-

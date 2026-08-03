@@ -48,7 +48,7 @@ def evaluate_target(
         raise ValueError("max_forecast_cycle must be greater than history_length")
     horizon = max_forecast_cycle - history_length
     model.eval()
-    forecast_tensor = model.recursive_forecast(target.support_soh, horizon)
+    forecast_tensor = model.recursive_forecast(target.support_features, horizon)
     forecast = forecast_tensor[0, :, 0].detach().cpu().numpy().astype(float)
     finite = np.isfinite(forecast)
     if not finite.all():
@@ -113,4 +113,3 @@ def evaluate_target(
         json.dumps(metrics, indent=2, default=_json_default, allow_nan=True), encoding="utf-8"
     )
     return EvaluationResult(predictions=predictions, metrics=metrics)
-

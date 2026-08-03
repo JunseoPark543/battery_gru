@@ -184,8 +184,11 @@ def run_experiment(
     source_names = select_source_names(trajectories, target_name, source_mode)
     target_full = trajectories[target_name]
     # This is the only target object created before training; it physically contains just first L.
-    target_support = target_full.target_support(history_length)
-    source_tasks = [trajectories[name].source_task(history_length) for name in source_names]
+    target_support = target_full.target_support(history_length, resolved.model.features)
+    source_tasks = [
+        trajectories[name].source_task(history_length, resolved.model.features)
+        for name in source_names
+    ]
     if resume is not None:
         run_dir = Path(resume).resolve().parent.parent
     else:
@@ -206,9 +209,18 @@ def run_experiment(
     pd.DataFrame([summary_record(trajectories[name]) for name in source_names]).to_csv(
         run_dir / "preprocessing/source_summary.csv", index=False
     )
-    pd.DataFrame(
-        {"file_name": target_name, "cycle": target_support.cycles, "soh": target_support.soh}
-    ).to_csv(run_dir / "preprocessing/target_support.csv", index=False)
+    target_support_columns: dict[str, Any] = {
+        "file_name": target_name,
+        "cycle": target_support.cycles,
+        "soh": target_support.soh,
+        "mean_voltage_V": target_full.mean_voltage_v[:history_length],
+    }
+    for feature_index, feature_name in enumerate(target_support.feature_names):
+        column_name = "input_soh" if feature_name == "soh" else f"input_{feature_name}_z"
+        target_support_columns[column_name] = target_support.features[:, feature_index]
+    pd.DataFrame(target_support_columns).to_csv(
+        run_dir / "preprocessing/target_support.csv", index=False
+    )
     device = resolve_device(resolved.device)
     model = _create_model(resolved)
     total, trainable = parameter_counts(model)
@@ -260,7 +272,9 @@ def run_experiment(
     fast.history.to_csv(run_dir / "adaptation/fast_adaptation_history.csv", index=False)
     full.history.to_csv(run_dir / "adaptation/full_adaptation_history.csv", index=False)
     # Target future and true EOL become accessible only after both adaptations are complete.
-    evaluation_view = TargetEvaluationView.after_training(target_full, history_length)
+    evaluation_view = TargetEvaluationView.after_training(
+        target_full, history_length, resolved.model.features
+    )
     fast_result = evaluate_target(
         fast.model, evaluation_view, history_length, resolved.data.max_forecast_cycle,
         resolved.data.eol_threshold, "fast", run_dir, logger,

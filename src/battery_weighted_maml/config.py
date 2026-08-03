@@ -21,6 +21,8 @@ class DataConfig:
 @dataclass
 class ModelConfig:
     input_size: int = 1
+    features: list[str] = field(default_factory=lambda: ["soh"])
+    voltage_normalization: str = "support_zscore"
     hidden_size: int = 64
     num_layers: int = 1
     dropout: float = 0.0
@@ -95,8 +97,18 @@ class ExperimentConfig:
             raise ValueError("all data.history_lengths must be >= 2")
         if self.data.max_forecast_cycle <= max(self.data.history_lengths):
             raise ValueError("max_forecast_cycle must exceed every history length")
-        if self.model.input_size != 1:
-            raise ValueError("this SOH-only implementation requires model.input_size=1")
+        allowed_features = {"soh", "voltage_mean"}
+        if not self.model.features or self.model.features[0] != "soh":
+            raise ValueError("model.features must start with 'soh'")
+        if len(set(self.model.features)) != len(self.model.features):
+            raise ValueError("model.features cannot contain duplicates")
+        unknown_features = set(self.model.features) - allowed_features
+        if unknown_features:
+            raise ValueError(f"unsupported model.features: {sorted(unknown_features)}")
+        if self.model.input_size != len(self.model.features):
+            raise ValueError("model.input_size must equal len(model.features)")
+        if self.model.voltage_normalization != "support_zscore":
+            raise ValueError("only support_zscore voltage normalization is supported")
         if self.model.hidden_size <= 0 or self.model.num_layers <= 0:
             raise ValueError("model sizes must be positive")
         if not 0.0 <= self.model.teacher_forcing_ratio <= 1.0:
@@ -191,4 +203,3 @@ def save_resolved_config(config: ExperimentConfig, path: str | Path) -> None:
         yaml.safe_dump(config.to_dict(), sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
-

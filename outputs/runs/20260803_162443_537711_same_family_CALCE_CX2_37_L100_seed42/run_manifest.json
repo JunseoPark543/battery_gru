@@ -1,0 +1,141 @@
+{
+  "started_at_utc": "2026-08-03T07:24:43.565864+00:00",
+  "python_version": "3.14.5",
+  "pytorch_version": "2.13.0+cpu",
+  "cuda_version": null,
+  "gpu_name": null,
+  "os": "Windows-11-10.0.26200-SP0",
+  "package_versions": {
+    "torch": "2.13.0",
+    "numpy": "2.4.6",
+    "pandas": "3.0.3",
+    "scipy": "1.17.1",
+    "scikit-learn": "1.8.0",
+    "matplotlib": "3.10.9",
+    "PyYAML": "6.0.3",
+    "tqdm": "4.70.0",
+    "cvxpy": "1.9.2",
+    "osqp": "1.1.3",
+    "scs": "3.2.11",
+    "higher": "0.2.1"
+  },
+  "seed": 42,
+  "command": "scripts/run_single.py --target CALCE_CX2_37.pkl --history-length 100 --source-mode same_family --config configs/l100_soh_voltage_2300.yaml --smoke-test",
+  "git_commit": "59ef781cf42032d2f72f595de10476ba40e59bdf",
+  "target": "CALCE_CX2_37.pkl",
+  "sources": [
+    "CALCE_CX2_16.pkl",
+    "CALCE_CX2_33.pkl",
+    "CALCE_CX2_34.pkl",
+    "CALCE_CX2_35.pkl",
+    "CALCE_CX2_36.pkl",
+    "CALCE_CX2_38.pkl"
+  ],
+  "history_length": 100,
+  "source_mode": "same_family",
+  "resolved_config": {
+    "seed": 42,
+    "device": "auto",
+    "data": {
+      "calce_dir": "data/CALCE",
+      "label_path": "data/Life labels/CALCE_labels.json",
+      "eol_threshold": 0.8,
+      "history_lengths": [
+        100
+      ],
+      "max_forecast_cycle": 110
+    },
+    "model": {
+      "input_size": 2,
+      "features": [
+        "soh",
+        "voltage_mean"
+      ],
+      "voltage_normalization": "support_zscore",
+      "hidden_size": 64,
+      "num_layers": 1,
+      "dropout": 0.0,
+      "teacher_forcing_ratio": 0.5
+    },
+    "maml": {
+      "full_maml": true,
+      "inner_steps": 1,
+      "inner_lr": 0.05,
+      "inner_batch_size": 64,
+      "outer_lr": 0.001,
+      "meta_iterations": 2,
+      "gradient_clip_norm": 5.0
+    },
+    "weights": {
+      "method": "mmd_qp",
+      "kernel": "rbf",
+      "sigma": "median",
+      "qp_solver_primary": "OSQP",
+      "qp_solver_fallback": "SCS",
+      "diagonal_jitter": 1e-08,
+      "recompute_every_iteration": true,
+      "detach_alpha": true
+    },
+    "adaptation": {
+      "fast_steps": 1,
+      "full_max_steps": 2,
+      "full_patience": 2,
+      "learning_rate": 0.05
+    },
+    "logging": {
+      "log_interval": 1,
+      "checkpoint_interval": 1,
+      "save_alpha_interval": 1
+    },
+    "evaluation": {
+      "primary_adaptation": "full",
+      "save_per_cycle_predictions": true
+    },
+    "source_mode": "same_family"
+  },
+  "status": "completed",
+  "completed_at_utc": "2026-08-03T07:25:21.482730+00:00",
+  "fast_metrics": {
+    "mae": 0.7820922880413848,
+    "rmse": 0.782439434362225,
+    "r2": -81691.65933054153,
+    "r2_nan_reason": null,
+    "max_absolute_error": 0.829845313121475,
+    "final_cycle_absolute_error": 0.7568476800380082,
+    "pre_eol_mae": 0.7820922880413848,
+    "post_eol_mae": NaN,
+    "prediction_point_count": 10,
+    "true_eol_cycle": 579,
+    "predicted_eol_cycle_discrete": 101.0,
+    "predicted_eol_cycle_interpolated": 100.16171765675325,
+    "true_rul": 479.0,
+    "predicted_rul": 1.0,
+    "signed_rul_error": -478.0,
+    "absolute_rul_error": 478.0,
+    "relative_absolute_rul_error": 0.9979123173277662,
+    "crossing_found": true,
+    "adaptation_mode": "fast"
+  },
+  "full_metrics": {
+    "mae": 0.6104696526172477,
+    "rmse": 0.6116978287137139,
+    "r2": -49928.29694329803,
+    "r2_nan_reason": null,
+    "max_absolute_error": 0.6970286556975019,
+    "final_cycle_absolute_error": 0.5729564581570954,
+    "pre_eol_mae": 0.6104696526172477,
+    "post_eol_mae": NaN,
+    "prediction_point_count": 10,
+    "true_eol_cycle": 579,
+    "predicted_eol_cycle_discrete": 101.0,
+    "predicted_eol_cycle_interpolated": 100.19253947329143,
+    "true_rul": 479.0,
+    "predicted_rul": 1.0,
+    "signed_rul_error": -478.0,
+    "absolute_rul_error": 478.0,
+    "relative_absolute_rul_error": 0.9979123173277662,
+    "crossing_found": true,
+    "adaptation_mode": "full"
+  },
+  "best_source_meta_loss_ema": 0.3515166085958481
+}

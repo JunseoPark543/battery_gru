@@ -10,6 +10,8 @@ data:
 
 model:
   input_size: 1
+  features: [soh]
+  voltage_normalization: support_zscore
   hidden_size: 64
   num_layers: 1
   dropout: 0.0

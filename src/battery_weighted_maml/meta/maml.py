@@ -50,7 +50,7 @@ def adapt_source_task(
     full_maml: bool = True,
 ) -> TaskMetaLoss:
     """Adapt on one source's support and evaluate its mean query loss."""
-    dataset = PrefixFutureDataset(task.support_soh)
+    dataset = PrefixFutureDataset(task.support_soh, task.support_features)
     inner_optimizer = torch.optim.SGD(model.parameters(), lr=inner_lr)
     support_losses: list[torch.Tensor] = []
     # CuDNN RNN kernels do not implement the double backward required by full
@@ -80,8 +80,8 @@ def adapt_source_task(
                 differentiable_optimizer.step(support_loss)
                 support_losses.append(support_loss)
             history = torch.tensor(
-                task.support_soh, dtype=torch.float32, device=device
-            ).view(1, -1, 1)
+                task.support_features, dtype=torch.float32, device=device
+            ).unsqueeze(0)
             query = torch.tensor(
                 task.query_soh, dtype=torch.float32, device=device
             ).view(1, -1, 1)

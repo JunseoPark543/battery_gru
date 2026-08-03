@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from conftest import make_trajectory
+
 
 def test_source_support_query_split(parsed_cell):
     task = parsed_cell.source_task(2)
@@ -13,3 +15,19 @@ def test_source_support_query_split(parsed_cell):
 def test_cell_requires_l_plus_one_cycles(parsed_cell):
     with pytest.raises(ValueError, match=r"L\+1"):
         parsed_cell.source_task(3)
+
+
+def test_voltage_is_normalized_from_support_prefix_only():
+    common = [3.5, 3.7, 3.6, 3.4]
+    first = make_trajectory(
+        "CALCE_CX2_33.pkl", [1.0, 0.98, 0.96, 0.94], mean_voltage_v=common
+    )
+    second = make_trajectory(
+        "CALCE_CX2_33.pkl", [1.0, 0.98, 0.96, 0.94],
+        mean_voltage_v=[3.5, 3.7, 1000.0, -1000.0],
+    )
+    first_view = first.target_support(2, ["soh", "voltage_mean"])
+    second_view = second.target_support(2, ["soh", "voltage_mean"])
+    np.testing.assert_allclose(first_view.features, second_view.features)
+    np.testing.assert_allclose(first_view.features[:, 1], [-1.0, 1.0])
+    assert not first_view.features.flags.writeable

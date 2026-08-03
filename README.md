@@ -82,6 +82,8 @@ Source cell 하나가 task 하나입니다. 초기 `L`개 SOH가 support, 나머
 
 모델은 packed sequence를 사용하는 GRU encoder와 autoregressive GRU decoder입니다. 학습 시 teacher forcing 비율은 기본 0.5이며, 최종 예측에서는 이전 예측을 다음 입력으로 넣는 완전 recursive mode(teacher forcing 0)를 사용합니다.
 
+`model.features: [soh, voltage_mean]` 설정에서는 각 cycle의 유한한 `voltage_in_V` 값 평균을 두 번째 encoder 입력으로 사용합니다. 전압은 cell별 초기 L개 support에서 계산한 평균과 표준편차로만 z-score 정규화하므로 미래 전압 정보는 사용하지 않습니다. Decoder와 예측 target은 계속 SOH 하나이며, 미래 전압을 입력으로 요구하지 않습니다.
+
 ## 5. Target-aware weighted full MAML
 
 매 meta iteration의 순서는 다음과 같습니다.
@@ -108,6 +110,14 @@ Forecast horizon은 target의 실제 길이나 EOL이 아니라 `max_forecast_cy
 ```bash
 python scripts/run_single.py --target CALCE_CX2_37.pkl --history-length 100 --source-mode same_family --config configs/base.yaml
 ```
+
+SOH와 cycle 평균 전압을 함께 입력하는 L=100, 2,300 iteration 실험:
+
+```bash
+python scripts/run_single.py --target CALCE_CX2_37.pkl --history-length 100 --source-mode same_family --config configs/l100_soh_voltage_2300.yaml
+```
+
+이 설정은 encoder 입력 차원이 2이므로 기존 SOH-only checkpoint에서 resume할 수 없습니다. 새 run으로 시작해야 합니다.
 
 빠른 end-to-end 검증(meta iteration 2, full adaptation 2 step, horizon 10):
 
@@ -187,4 +197,3 @@ Schema/SOH/보간/split, prefix padding과 mask, GRU, QP alpha 제약·대칭·�
 Python, NumPy, Torch, CUDA seed와 deterministic 설정을 적용하고 manifest에 환경·명령·package version·가능한 경우 git commit을 기록합니다. 다만 CUDA/CVX solver와 플랫폼 차이로 마지막 자릿수까지 완전히 같지 않을 수 있습니다.
 
 기본 10,000 iteration full MAML은 source별 second-order graph와 긴 decoder horizon 때문에 CPU에서 오래 걸리고 메모리를 많이 씁니다. 메모리 부족 시 `hidden_size`, `inner_batch_size`를 낮추거나 한 번에 한 run만 실행하십시오. `full_maml: false`는 명시적으로 first-order 실험을 할 때만 사용합니다. 학습 시간을 줄이려면 `meta_iterations`를 낮출 수 있지만 연구 기본 결과와 직접 비교할 수 없습니다. CVXPY solver 오류는 숨기지 않으므로 OSQP/SCS 설치를 먼저 확인해야 합니다.
-

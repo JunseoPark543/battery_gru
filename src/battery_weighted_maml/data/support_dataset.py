@@ -16,9 +16,13 @@ class SupportPair:
 
 
 class PrefixFutureDataset(Dataset[SupportPair]):
-    """All ``([y_1..y_j], [y_j+1..y_L])`` pairs for j=1..L-1."""
+    """All feature-prefix to future-SOH pairs for j=1..L-1."""
 
-    def __init__(self, soh: np.ndarray | list[float] | torch.Tensor) -> None:
+    def __init__(
+        self,
+        soh: np.ndarray | list[float] | torch.Tensor,
+        history_features: np.ndarray | torch.Tensor | None = None,
+    ) -> None:
         if isinstance(soh, torch.Tensor):
             values = soh.detach().to(dtype=torch.float32).flatten().clone()
         else:
@@ -28,6 +32,21 @@ class PrefixFutureDataset(Dataset[SupportPair]):
         if not torch.isfinite(values).all():
             raise ValueError("support SOH values must all be finite")
         self._values = values
+        if history_features is None:
+            features = values.unsqueeze(-1).clone()
+        elif isinstance(history_features, torch.Tensor):
+            features = history_features.detach().to(dtype=torch.float32).clone()
+        else:
+            features = torch.tensor(
+                np.asarray(history_features, dtype=np.float32).copy(), dtype=torch.float32
+            )
+        if features.ndim != 2 or features.shape[0] != len(values):
+            raise ValueError("history features must have shape [L, feature_count]")
+        if not torch.isfinite(features).all():
+            raise ValueError("support history features must all be finite")
+        if not torch.allclose(features[:, 0], values):
+            raise ValueError("the first history feature must be SOH")
+        self._features = features
 
     def __len__(self) -> int:
         return len(self._values) - 1
@@ -39,7 +58,7 @@ class PrefixFutureDataset(Dataset[SupportPair]):
             raise IndexError(index)
         split = index + 1
         return SupportPair(
-            history=self._values[:split].unsqueeze(-1),
+            history=self._features[:split],
             future=self._values[split:].unsqueeze(-1),
         )
 

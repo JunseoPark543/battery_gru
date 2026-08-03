@@ -72,13 +72,15 @@ class WeightedMAMLTrainer:
         with torch.no_grad():
             source_points = [
                 self.model.empirical_points(
-                    torch.tensor(task.support_soh, dtype=torch.float32, device=self.device)
+                    torch.tensor(
+                        task.support_features, dtype=torch.float32, device=self.device
+                    )
                 )
                 for task in self.source_tasks
             ]
             target_points = self.model.empirical_points(
                 torch.tensor(
-                    self.target_support.soh, dtype=torch.float32, device=self.device
+                    self.target_support.features, dtype=torch.float32, device=self.device
                 )
             )
         weight_config = self.config.weights

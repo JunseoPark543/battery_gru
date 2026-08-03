@@ -37,7 +37,7 @@ def adapt_target(
     adapted = copy.deepcopy(model).to(device)
     adapted.train()
     optimizer = torch.optim.SGD(adapted.parameters(), lr=learning_rate)
-    dataset = PrefixFutureDataset(target.soh)
+    dataset = PrefixFutureDataset(target.soh, target.features)
     best_state = copy.deepcopy(adapted.state_dict())
     best_loss = float("inf")
     best_step = 0
@@ -79,4 +79,3 @@ def adapt_target(
         best_loss=best_loss,
         best_step=best_step,
     )
-

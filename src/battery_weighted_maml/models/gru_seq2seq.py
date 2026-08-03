@@ -1,4 +1,4 @@
-"""Recursive GRU encoder-decoder for scalar SOH sequences."""
+"""Recursive GRU encoder-decoder for multivariate history and scalar SOH output."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def masked_mse(
 
 
 class GRUSeq2Seq(nn.Module):
-    """GRU encoder-decoder with scalar autoregressive output."""
+    """GRU encoder-decoder with multivariate encoder and scalar SOH decoder."""
 
     def __init__(
         self,
@@ -48,8 +48,8 @@ class GRUSeq2Seq(nn.Module):
         dropout: float = 0.0,
     ) -> None:
         super().__init__()
-        if input_size != 1:
-            raise ValueError("GRUSeq2Seq currently supports the scalar SOH input_size=1")
+        if input_size <= 0:
+            raise ValueError("input_size must be positive")
         effective_dropout = dropout if num_layers > 1 else 0.0
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -73,9 +73,11 @@ class GRUSeq2Seq(nn.Module):
     def encode(
         self, sequence: torch.Tensor, lengths: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Encode padded ``[B,T,1]`` sequences into outputs and ``[layers,B,H]`` state."""
-        if sequence.ndim != 3 or sequence.shape[-1] != 1:
-            raise ValueError(f"sequence must have shape [B,T,1], got {tuple(sequence.shape)}")
+        """Encode padded ``[B,T,F]`` sequences into outputs and ``[layers,B,H]`` state."""
+        if sequence.ndim != 3 or sequence.shape[-1] != self.input_size:
+            raise ValueError(
+                f"sequence must have shape [B,T,{self.input_size}], got {tuple(sequence.shape)}"
+            )
         if lengths.ndim != 1 or len(lengths) != sequence.shape[0]:
             raise ValueError("lengths must be a [B] tensor matching sequence batch size")
         if torch.any(lengths <= 0) or torch.any(lengths > sequence.shape[1]):
@@ -154,10 +156,14 @@ class GRUSeq2Seq(nn.Module):
         teacher_forcing_ratio: float = 0.0,
         generator: torch.Generator | None = None,
     ) -> torch.Tensor:
-        """Forecast from padded ``history [B,T,1]`` to ``[B,horizon,1]``."""
+        """Forecast SOH from padded ``history [B,T,F]`` to ``[B,horizon,1]``."""
         _, hidden = self.encode(history, history_lengths)
         batch_index = torch.arange(history.shape[0], device=history.device)
-        last_value = history[batch_index, history_lengths.to(history.device) - 1, :]
+        # SOH is always feature zero. Future voltage is deliberately not needed:
+        # the decoder recursively consumes scalar SOH values only.
+        last_value = history[
+            batch_index, history_lengths.to(history.device) - 1, 0:1
+        ]
         if horizon is None:
             if future_targets is None:
                 raise ValueError("horizon is required when future_targets is absent")
@@ -185,15 +191,22 @@ class GRUSeq2Seq(nn.Module):
             values = history.detach().to(device=model_device, dtype=torch.float32).clone()
         else:
             values = torch.tensor(history, dtype=torch.float32, device=model_device)
-        if values.ndim == 1:
-            values = values.unsqueeze(0).unsqueeze(-1)
-        elif values.ndim == 2:
-            if values.shape[-1] == 1:
-                values = values.unsqueeze(0)
-            else:
-                values = values.unsqueeze(-1)
-        if values.ndim != 3 or values.shape[-1] != 1:
-            raise ValueError("history must represent [T], [T,1], [B,T], or [B,T,1]")
+        if self.input_size == 1:
+            if values.ndim == 1:
+                values = values.unsqueeze(0).unsqueeze(-1)
+            elif values.ndim == 2:
+                values = (
+                    values.unsqueeze(0)
+                    if values.shape[-1] == 1
+                    else values.unsqueeze(-1)
+                )
+        elif values.ndim == 2 and values.shape[-1] == self.input_size:
+            values = values.unsqueeze(0)
+        if values.ndim != 3 or values.shape[-1] != self.input_size:
+            raise ValueError(
+                f"history must end with {self.input_size} feature(s); "
+                "use [T,F] or [B,T,F] for multivariate input"
+            )
         lengths = torch.full(
             (values.shape[0],), values.shape[1], dtype=torch.long, device=values.device
         )
@@ -201,14 +214,20 @@ class GRUSeq2Seq(nn.Module):
         self.train(was_training)
         return result
 
-    def empirical_points(self, support_soh: torch.Tensor) -> torch.Tensor:
+    def empirical_points(self, support_features: torch.Tensor) -> torch.Tensor:
         """Build detached-ready empirical points ``[L-1,H+1]`` from support only."""
-        values = support_soh.flatten()
+        values = support_features
+        if values.ndim == 1 and self.input_size == 1:
+            values = values.unsqueeze(-1)
+        if values.ndim != 2 or values.shape[-1] != self.input_size:
+            raise ValueError(
+                f"support_features must have shape [L,{self.input_size}]"
+            )
         if len(values) < 2:
             raise ValueError("at least two support observations are required")
-        history = values.view(1, -1, 1)
+        history = values.unsqueeze(0)
         lengths = torch.tensor([len(values)], dtype=torch.long, device=values.device)
         outputs, _ = self.encode(history, lengths)
         normalized = F.normalize(outputs[0, :-1, :], p=2, dim=-1, eps=1e-12)
-        labels = values[1:].unsqueeze(-1)
+        labels = values[1:, 0:1]
         return torch.cat([normalized, labels], dim=-1)

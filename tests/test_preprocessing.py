@@ -37,3 +37,12 @@ def test_last_valid_duplicate_record_wins(tmp_path):
     cell = preprocess_cell(load_calce_pickle(path), true_eol_cycle=2)
     assert cell.soh[0] == 0.9
 
+
+def test_cycle_mean_voltage_is_extracted_and_interpolated(tmp_path):
+    path = write_pickle(
+        tmp_path / "CALCE_CX2_33.pkl",
+        [(1, [2.0]), (3, [1.8])],
+        voltages=[[3.6, np.nan, 3.8], [3.4, 3.6]],
+    )
+    cell = preprocess_cell(load_calce_pickle(path), true_eol_cycle=3)
+    np.testing.assert_allclose(cell.mean_voltage_v, [3.7, 3.6, 3.5])

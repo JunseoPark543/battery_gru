@@ -16,7 +16,10 @@ def write_pickle(
     capacities: list[tuple[int, object]],
     nominal: float = 2.0,
     cell_id: str | None = None,
+    voltages: list[object] | None = None,
 ) -> Path:
+    if voltages is not None and len(voltages) != len(capacities):
+        raise ValueError("voltages and capacities must have equal lengths")
     payload = {
         "cell_id": cell_id or path.stem,
         "nominal_capacity_in_Ah": nominal,
@@ -25,11 +28,11 @@ def write_pickle(
                 "cycle_number": cycle,
                 "discharge_capacity_in_Ah": value,
                 "current_in_A": [],
-                "voltage_in_V": [],
+                "voltage_in_V": [] if voltages is None else voltages[index],
                 "charge_capacity_in_Ah": [],
                 "time_in_s": [],
             }
-            for cycle, value in capacities
+            for index, (cycle, value) in enumerate(capacities)
         ],
     }
     with path.open("wb") as handle:
@@ -37,7 +40,12 @@ def write_pickle(
     return path
 
 
-def make_trajectory(name: str, soh: list[float], true_eol: int = 8) -> FullCellTrajectory:
+def make_trajectory(
+    name: str,
+    soh: list[float],
+    true_eol: int = 8,
+    mean_voltage_v: list[float] | None = None,
+) -> FullCellTrajectory:
     values = np.asarray(soh, dtype=float)
     cycles = np.arange(1, len(values) + 1)
     return FullCellTrajectory(
@@ -53,6 +61,9 @@ def make_trajectory(name: str, soh: list[float], true_eol: int = 8) -> FullCellT
         raw_cycle_count=len(values),
         missing_count_before=0,
         missing_count_after=0,
+        mean_voltage_v=(
+            None if mean_voltage_v is None else np.asarray(mean_voltage_v, dtype=float)
+        ),
     )
 
 
@@ -63,4 +74,3 @@ def parsed_cell(tmp_path: Path):
         [(1, [0.1, 2.1]), (2, np.array([2.0])), (3, [1.9])],
     )
     return preprocess_cell(load_calce_pickle(path), true_eol_cycle=3)
-

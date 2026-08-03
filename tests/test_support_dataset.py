@@ -34,3 +34,13 @@ def test_random_support_sampling_uses_generator_device():
     assert indices.device.type == "cpu"
     assert indices.shape == (64,)
     assert len(torch.unique(indices)) == 64
+
+
+def test_multivariate_history_keeps_scalar_soh_future():
+    soh = torch.tensor([1.0, 0.9, 0.8])
+    features = torch.tensor([[1.0, -1.0], [0.9, 0.0], [0.8, 1.0]])
+    pair = PrefixFutureDataset(soh, features)[1]
+    assert pair.history.shape == (2, 2)
+    assert pair.future.shape == (1, 1)
+    torch.testing.assert_close(pair.history, features[:2])
+    torch.testing.assert_close(pair.future[:, 0], soh[2:])

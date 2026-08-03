@@ -23,3 +23,17 @@ def test_recursive_forecast_shape():
     assert output.shape == (1, 7, 1)
     assert not output.requires_grad
 
+
+def test_multivariate_encoder_forecasts_scalar_soh():
+    model = GRUSeq2Seq(input_size=2, hidden_size=8)
+    history = torch.tensor(
+        [[[1.0, -1.0], [0.98, 0.0], [0.96, 1.0]]], dtype=torch.float32
+    )
+    target = torch.zeros(1, 4, 1)
+    output = model(history, torch.tensor([3]), future_targets=target)
+    forecast = model.recursive_forecast(history[0], horizon=5)
+    points = model.empirical_points(history[0])
+    assert output.shape == (1, 4, 1)
+    assert forecast.shape == (1, 5, 1)
+    assert points.shape == (2, 9)
+    assert torch.isfinite(output).all()
