@@ -496,6 +496,7 @@ def run_gru_baseline(
         result.predictions,
         run_dir / "figures/target_soh_gru_baseline.png",
         f"{target_name} plain GRU encoder-decoder",
+        metrics=result.metrics,
     )
     best_payload = torch.load(
         run_dir / "checkpoints/best_validation.pt",

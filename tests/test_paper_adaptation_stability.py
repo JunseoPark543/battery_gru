@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import math
+import copy
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -16,6 +18,7 @@ from paper_reproduction.adapt_and_test import (
 from paper_reproduction.config import ExperimentConfig
 from paper_reproduction.data import CellTask, RecursivePairDataset, sample_support_batch
 from paper_reproduction.losses import masked_mse
+from paper_reproduction.main import _config_fingerprint, _new_run_dir
 from paper_reproduction.model import GRUEncoderDecoder
 
 
@@ -38,6 +41,27 @@ def _task(query_offset: float = 0.0) -> CellTask:
     support = np.linspace(1.0, 0.88, 6)
     query = np.linspace(0.85, 0.65, 6) + query_offset
     return CellTask("synthetic.pkl", np.arange(1, 13), np.concatenate([support, query]))
+
+
+def test_run_name_exposes_key_settings_and_fingerprints_full_config(tmp_path):
+    config = _config()
+    config.maml.experiment_label = "stabilized"
+    path = _new_run_dir(
+        config, Path(tmp_path), "adapt", "CALCE_CX2_37.pkl"
+    )
+    name = path.name
+    assert "_adapt_stabilized_L6_CX2_37_" in name
+    assert "flr0p05" in name
+    assert "clr0p005" in name
+    assert "al-sb" in name
+    assert "sp-ls" in name
+    assert "cp1" in name
+    assert "sc-const" in name
+    assert f"c{_config_fingerprint(config)}" in name
+
+    changed = copy.deepcopy(config)
+    changed.adaptation.complete_patience += 1
+    assert _config_fingerprint(changed) != _config_fingerprint(config)
 
 
 def _trajectory(

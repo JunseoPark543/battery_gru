@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import matplotlib
 matplotlib.use("Agg")
@@ -11,7 +13,44 @@ import numpy as np
 import pandas as pd
 
 
-def plot_target_prediction(frame: pd.DataFrame, path: str | Path, title: str) -> None:
+def _formatted_metric(
+    metrics: Mapping[str, Any],
+    key: str,
+    *,
+    scale: float = 1.0,
+    decimals: int = 3,
+) -> str:
+    value = metrics.get(key)
+    if value is None:
+        return "N/A"
+    try:
+        numeric = float(value) * scale
+    except (TypeError, ValueError):
+        return "N/A"
+    return f"{numeric:.{decimals}f}" if np.isfinite(numeric) else "N/A"
+
+
+def performance_title(title: str, metrics: Mapping[str, Any] | None) -> str:
+    """Append consistently scaled evaluation metrics to a prediction title."""
+    if metrics is None:
+        return title
+    mae = _formatted_metric(metrics, "mae", scale=100.0)
+    rmse = _formatted_metric(metrics, "rmse", scale=100.0)
+    r2 = _formatted_metric(metrics, "r2")
+    rul_error = _formatted_metric(metrics, "absolute_rul_error", decimals=0)
+    return (
+        f"{title}\n"
+        f"MAE={mae}% | RMSE={rmse}% | R²={r2} | "
+        f"absolute RUL error={rul_error} cycles"
+    )
+
+
+def plot_target_prediction(
+    frame: pd.DataFrame,
+    path: str | Path,
+    title: str,
+    metrics: Mapping[str, Any] | None = None,
+) -> None:
     fig, axis = plt.subplots(figsize=(9, 5))
     observed = frame[frame["observed_soh"].notna()]
     future = frame[frame["split"] == "future"]
@@ -19,7 +58,7 @@ def plot_target_prediction(frame: pd.DataFrame, path: str | Path, title: str) ->
     axis.plot(future["cycle"], future["predicted_soh"], label="recursive prediction", linewidth=1.3)
     axis.axhline(float(frame["eol_threshold"].iloc[0]), color="tab:red", linestyle="--", label="EOL")
     axis.axvline(int((frame["split"] == "support").sum()), color="gray", linestyle=":", label="L")
-    axis.set(xlabel="Cycle", ylabel="SOH", title=title)
+    axis.set(xlabel="Cycle", ylabel="SOH", title=performance_title(title, metrics))
     axis.grid(alpha=0.25)
     axis.legend()
     fig.tight_layout()
@@ -62,4 +101,3 @@ def plot_training_outputs(run_dir: str | Path) -> None:
         axis.set(xlabel="Meta iteration", title="Alpha heatmap")
         fig.colorbar(image, ax=axis, label="alpha"); fig.tight_layout()
         fig.savefig(root / "weights/alpha_heatmap.png", dpi=150); plt.close(fig)
-

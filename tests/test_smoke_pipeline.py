@@ -4,7 +4,24 @@ import json
 
 from battery_weighted_maml.cli import run_experiment
 from battery_weighted_maml.config import ExperimentConfig
+from battery_weighted_maml.evaluation.plots import performance_title
 from conftest import make_trajectory
+
+
+def test_prediction_figure_title_contains_scaled_performance_metrics():
+    title = performance_title(
+        "CX2_37 full adaptation",
+        {
+            "mae": 0.0226056591,
+            "rmse": 0.0300993291,
+            "r2": 0.85777355,
+            "absolute_rul_error": 38,
+        },
+    )
+    assert "MAE=2.261%" in title
+    assert "RMSE=3.010%" in title
+    assert "R²=0.858" in title
+    assert "absolute RUL error=38 cycles" in title
 
 
 def test_end_to_end_smoke_pipeline(tmp_path):

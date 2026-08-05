@@ -213,6 +213,29 @@ query points after L=500. `preprocessing_summary.csv` records the corresponding
 counts and extraction choices for all seven cells, making a different paper
 source/preprocessing version visible rather than silently forcing equal lengths.
 
+## Run-directory naming
+
+New run names contain the settings that most often change, plus an eight-digit
+fingerprint of the complete resolved configuration. For example:
+
+```text
+20260806_101530_train_stabilized_L500_mi1_ilr0p05_olr0p001_ml-sb_s42_c12ab34cd
+
+20260806_111500_adapt_stabilized_L500_CX2_37_flr0p05_clr0p005_al-sb_sp-ls_cp1_sc-const_s42_c56ef78ab
+```
+
+Abbreviations are `mi` (MAML inner steps), `ilr`/`olr` (inner/outer LR),
+`flr`/`clr` (fast/complete LR), `ml`/`al` (meta/adaptation reduction), `sp`
+(complete sampling), `cp` (clip), `sc` (scheduler), `s` (seed), and `c`
+(config fingerprint). `sb`/`pb` mean sample/point-balanced and `ls`/`rnd`
+mean length-stratified/random. Decimal points use `p`, so `0p005` means
+`0.005`.
+
+The fingerprint changes when any resolved setting changes, including a setting
+not shown in the readable portion. `config.yaml` and `run_manifest.json` remain
+the authoritative full record. Existing run directories are intentionally not
+renamed.
+
 ## Tests
 
 ```bash

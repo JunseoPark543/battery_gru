@@ -290,10 +290,12 @@ def run_experiment(
     plot_target_prediction(
         fast_result.predictions, run_dir / "figures/target_soh_fast.png",
         f"{target_name} fast adaptation",
+        metrics=fast_result.metrics,
     )
     plot_target_prediction(
         full_result.predictions, run_dir / "figures/target_soh_full.png",
         f"{target_name} full adaptation",
+        metrics=full_result.metrics,
     )
     plot_training_outputs(run_dir)
     manifest.update(

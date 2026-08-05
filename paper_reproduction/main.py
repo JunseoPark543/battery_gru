@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import random
@@ -81,17 +82,79 @@ def _rooted(path: str | Path, root: Path) -> Path:
     return value if value.is_absolute() else root / value
 
 
-def _new_run_dir(config: ExperimentConfig, root: Path, mode: str) -> Path:
+def _slug(value: object, maximum_length: int = 24) -> str:
+    text = "".join(
+        character if character.isalnum() or character in {"-", "_"} else "-"
+        for character in str(value)
+    ).strip("-")
+    return (text or "unnamed")[:maximum_length]
+
+
+def _number_tag(value: float | None) -> str:
+    if value is None:
+        return "none"
+    return f"{value:g}".replace("-", "m").replace(".", "p").replace("+", "")
+
+
+def _config_fingerprint(config: ExperimentConfig) -> str:
+    canonical = json.dumps(
+        config.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:8]
+
+
+def _new_run_dir(
+    config: ExperimentConfig,
+    root: Path,
+    mode: str,
+    target_cell: str | None = None,
+) -> Path:
     output = _rooted(config.paths.output_dir, root)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    label = "".join(
-        character if character.isalnum() or character in {"-", "_"} else "-"
-        for character in config.maml.experiment_label
-    ).strip("-")
-    return output / (
-        f"{timestamp}_{mode}_{label}_inner{config.maml.inner_steps}_"
-        f"L{config.data.history_length}_seed{config.seed}"
-    )
+    label = _slug(config.maml.experiment_label)
+    reduction_alias = {
+        "point_balanced": "pb",
+        "sample_balanced": "sb",
+    }
+    sampling_alias = {
+        "random": "rnd",
+        "length_stratified": "ls",
+        "full_support": "full",
+    }
+    scheduler_alias = {
+        "constant": "const",
+        "step": "step",
+        "plateau": "plat",
+    }
+    fields = [timestamp, mode, label, f"L{config.data.history_length}"]
+    if mode in {"train", "all", "optuna"}:
+        fields.extend(
+            [
+                f"mi{config.maml.inner_steps}",
+                f"ilr{_number_tag(config.maml.inner_learning_rate)}",
+                f"olr{_number_tag(config.maml.outer_learning_rate)}",
+                f"ml-{reduction_alias[config.loss.recursive_reduction]}",
+            ]
+        )
+    if mode in {"test", "adapt", "all"}:
+        target = (
+            Path(target_cell).stem.removeprefix("CALCE_")
+            if target_cell
+            else "all-tests"
+        )
+        fields.extend(
+            [
+                _slug(target),
+                f"flr{_number_tag(config.adaptation.resolved_fast_learning_rate())}",
+                f"clr{_number_tag(config.adaptation.resolved_complete_learning_rate())}",
+                f"al-{reduction_alias[config.adaptation.recursive_loss_reduction]}",
+                f"sp-{sampling_alias[config.adaptation.sampling_mode]}",
+                f"cp{_number_tag(config.adaptation.gradient_clip_norm)}",
+                f"sc-{scheduler_alias[config.adaptation.scheduler]}",
+            ]
+        )
+    fields.extend([f"s{config.seed}", f"c{_config_fingerprint(config)}"])
+    return output / "_".join(fields)
 
 
 def _write_manifest(path: Path, payload: dict[str, Any]) -> None:
@@ -169,7 +232,12 @@ def run(args: argparse.Namespace) -> Path:
     if args.resume is not None and args.mode in {"train", "all"}:
         run_dir = Path(args.resume).resolve().parent.parent
     else:
-        run_dir = _new_run_dir(config, root, args.mode)
+        name_target = (
+            args.test_cell
+            if args.test_cell is not None
+            else (config.data.test_cells[0] if args.mode == "adapt" else None)
+        )
+        run_dir = _new_run_dir(config, root, args.mode, name_target)
     run_dir.mkdir(parents=True, exist_ok=True)
     logger = configure_logger(run_dir / "logs/run.log")
     save_config(config, run_dir / "config.yaml")
@@ -185,6 +253,9 @@ def run(args: argparse.Namespace) -> Path:
         "test_cells": config.data.test_cells,
         "algorithm": "full_second_order_maml",
         "weighted_meta_learning": False,
+        "run_name": run_dir.name,
+        "run_name_schema_version": 2,
+        "config_fingerprint": _config_fingerprint(config),
         "config": config.to_dict(),
     }
     _write_manifest(run_dir / "run_manifest.json", manifest)
