@@ -185,7 +185,8 @@ def _task_post_adaptation_loss(
         config.seed + epoch * 20011 + task_index * 211
     )
     support_losses: list[torch.Tensor] = []
-    query_losses: list[torch.Tensor] = []
+    weighted_query_losses: list[torch.Tensor] = []
+    query_weight_total = 0.0
     with higher.innerloop_ctx(
         meta_model,
         inner_optimizer,
@@ -196,7 +197,7 @@ def _task_post_adaptation_loss(
         track_higher_grads=True,
     ) as (task_model, differentiable_optimizer):
         task_model.train()
-        for _ in range(config.maml.inner_steps):
+        for inner_step in range(1, config.maml.inner_steps + 1):
             support_batch = sample_support_batch(
                 support_dataset,
                 config.maml.inner_batch_size,
@@ -214,22 +215,39 @@ def _task_post_adaptation_loss(
                 raise FloatingPointError(f"{task.name}: non-finite support loss")
             differentiable_optimizer.step(support_loss)
             support_losses.append(support_loss)
-        # The exact query definition in the request is support[1:L] -> all
-        # SOH after L. query_batch_size is configurable, though this dataset
-        # intentionally contains one complete query sample per task.
-        for raw_batch in query_loader:
-            query_batch = _move_batch(raw_batch, device)
-            query_loss = _model_loss(
-                task_model,
-                query_batch,
-                loss_function,
-                config.model.predicted_input_probability,
-                teacher_generator,
-            )
-            if not torch.isfinite(query_loss):
-                raise FloatingPointError(f"{task.name}: non-finite query loss")
-            query_losses.append(query_loss)
-    return torch.stack(support_losses).mean(), torch.stack(query_losses).mean()
+            query_weight = config.maml.multi_step_query_weights.get(inner_step, 0.0)
+            if query_weight > 0:
+                # The exact query is support[1:L] -> all SOH after L. A
+                # step-specific RNG prevents query diagnostics from changing
+                # the later support-update random stream in multi-step mode.
+                query_generator = torch.Generator(
+                    device=_generator_device(device)
+                ).manual_seed(
+                    config.seed + epoch * 30011 + task_index * 307 + inner_step
+                )
+                step_query_losses: list[torch.Tensor] = []
+                for raw_batch in query_loader:
+                    query_batch = _move_batch(raw_batch, device)
+                    query_loss = _model_loss(
+                        task_model,
+                        query_batch,
+                        loss_function,
+                        config.model.predicted_input_probability,
+                        query_generator,
+                    )
+                    if not torch.isfinite(query_loss):
+                        raise FloatingPointError(f"{task.name}: non-finite query loss")
+                    step_query_losses.append(query_loss)
+                weighted_query_losses.append(
+                    query_weight * torch.stack(step_query_losses).mean()
+                )
+                query_weight_total += query_weight
+    if query_weight_total <= 0:
+        raise ValueError("no positive query-loss weight was configured")
+    return (
+        torch.stack(support_losses).mean(),
+        torch.stack(weighted_query_losses).sum() / query_weight_total,
+    )
 
 
 def evaluate_meta_objective_deterministic(
@@ -261,7 +279,9 @@ def evaluate_meta_objective_deterministic(
             device=_generator_device(device)
         ).manual_seed(config.seed + 90001 + task_index * 211)
         adapted.train()
-        for _ in range(config.maml.inner_steps):
+        weighted_query_loss = 0.0
+        query_weight_total = 0.0
+        for inner_step in range(1, config.maml.inner_steps + 1):
             support_batch = sample_support_batch(
                 support_dataset,
                 config.maml.inner_batch_size,
@@ -278,24 +298,29 @@ def evaluate_meta_objective_deterministic(
             optimizer.zero_grad(set_to_none=True)
             support_loss.backward()
             optimizer.step()
-        adapted.eval()
-        query_batch = _move_batch(
-            variable_length_collate([QuerySequenceDataset(support, query)[0]]),
-            device,
-        )
-        with torch.no_grad():
-            query_loss = _model_loss(
-                adapted,
-                query_batch,
-                loss_function,
-                predicted_input_probability=1.0,
-                generator=None,
-            )
-        if not torch.isfinite(query_loss):
-            raise FloatingPointError(
-                f"{task.name}: non-finite deterministic selection loss"
-            )
-        task_losses.append(float(query_loss.cpu()))
+            query_weight = config.maml.multi_step_query_weights.get(inner_step, 0.0)
+            if query_weight > 0:
+                adapted.eval()
+                query_batch = _move_batch(
+                    variable_length_collate([QuerySequenceDataset(support, query)[0]]),
+                    device,
+                )
+                with torch.no_grad():
+                    query_loss = _model_loss(
+                        adapted,
+                        query_batch,
+                        loss_function,
+                        predicted_input_probability=1.0,
+                        generator=None,
+                    )
+                if not torch.isfinite(query_loss):
+                    raise FloatingPointError(
+                        f"{task.name}: non-finite deterministic selection loss"
+                    )
+                weighted_query_loss += query_weight * float(query_loss.cpu())
+                query_weight_total += query_weight
+                adapted.train()
+        task_losses.append(weighted_query_loss / query_weight_total)
     return float(np.mean(task_losses))
 
 
@@ -323,7 +348,7 @@ def train_meta_model(
     save_config(config, root / "config_resolved.yaml")
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.maml.outer_learning_rate)
-    loss_function = get_loss(config.loss.kind)
+    loss_function = get_loss(config.loss.kind, config.loss.recursive_reduction)
     start_epoch = 1
     best_epoch = 0
     best_meta_loss = float("inf")

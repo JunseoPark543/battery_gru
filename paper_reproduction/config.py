@@ -45,6 +45,7 @@ class ModelConfig:
 @dataclass
 class LossConfig:
     kind: str = "mse"  # implementation choice: paper denotes only L
+    recursive_reduction: str = "sample_balanced"  # stabilization default
 
 
 @dataclass
@@ -53,6 +54,11 @@ class MAMLConfig:
     meta_batch_size: int = 5  # paper: all five training cells
     inner_learning_rate: float = 5.0e-2  # paper
     inner_steps: int = 1  # paper
+    inner_steps_candidates: list[int] = field(default_factory=lambda: [1, 3, 5])
+    multi_step_query_weights: dict[int, float] = field(
+        default_factory=lambda: {1: 1.0}
+    )
+    experiment_label: str = "paper_default"
     inner_batch_size: int = 64  # paper
     outer_learning_rate: float = 1.0e-3  # implementation choice
     query_batch_size: int = 1  # implementation choice; one full query per task
@@ -69,12 +75,47 @@ class MAMLConfig:
 
 @dataclass
 class AdaptationConfig:
-    learning_rate: float = 5.0e-2  # paper
+    # Legacy field: when present in an old YAML, it overrides both new rates.
+    learning_rate: float | None = None
+    fast_learning_rate: float = 5.0e-2  # paper one-step adaptation
+    complete_learning_rate: float = 5.0e-3  # stabilization default
+    complete_learning_rate_candidates: list[float] = field(
+        default_factory=lambda: [0.05, 0.01, 0.005, 0.001, 0.0005]
+    )
     batch_size: int = 64  # paper fast-step definition
     fast_steps: list[int] = field(default_factory=lambda: [0, 1, 3, 5])  # paper
-    complete_max_steps: int = 200  # implementation choice
-    complete_patience: int = 20  # implementation choice
-    complete_min_delta: float = 1.0e-7  # implementation choice
+    complete_max_steps: int = 500
+    complete_patience: int = 30
+    complete_min_delta: float = 1.0e-6
+    recursive_loss_reduction: str = "sample_balanced"
+    fast_sampling_mode: str = "random"
+    sampling_mode: str = "length_stratified"
+    length_stratified_bins: int = 5
+    checkpoint_selection: str = "support_recursive_validation"
+    validation_ratio: float = 0.2
+    minimum_validation_length: int = 20
+    maximum_validation_length: int = 100
+    scheduler: str = "constant"
+    scheduler_step_size: int = 50
+    scheduler_gamma: float = 0.5
+    scheduler_patience: int = 10
+    gradient_clip_norm: float | None = 1.0
+    gradient_clip_candidates: list[float | None] = field(
+        default_factory=lambda: [None, 5.0, 1.0, 0.5]
+    )
+    relative_update_warning_threshold: float = 0.5
+    diagnostics: bool = True
+    oracle_diagnostics: bool = True
+
+    def resolved_fast_learning_rate(self) -> float:
+        return self.learning_rate if self.learning_rate is not None else self.fast_learning_rate
+
+    def resolved_complete_learning_rate(self) -> float:
+        return (
+            self.learning_rate
+            if self.learning_rate is not None
+            else self.complete_learning_rate
+        )
 
 
 @dataclass
@@ -121,6 +162,8 @@ class ExperimentConfig:
             raise ValueError("predicted_input_probability must be in [0,1]")
         if self.loss.kind not in {"mse", "mae"}:
             raise ValueError("loss.kind must be mse or mae")
+        if self.loss.recursive_reduction not in {"point_balanced", "sample_balanced"}:
+            raise ValueError("loss.recursive_reduction is invalid")
         positive = {
             "max_epochs": self.maml.max_epochs,
             "inner_learning_rate": self.maml.inner_learning_rate,
@@ -130,7 +173,8 @@ class ExperimentConfig:
             "query_batch_size": self.maml.query_batch_size,
             "gradient_clip_norm": self.maml.gradient_clip_norm,
             "early_stopping_patience": self.maml.early_stopping_patience,
-            "adaptation_learning_rate": self.adaptation.learning_rate,
+            "fast_learning_rate": self.adaptation.resolved_fast_learning_rate(),
+            "complete_learning_rate": self.adaptation.resolved_complete_learning_rate(),
             "adaptation_batch_size": self.adaptation.batch_size,
             "complete_max_steps": self.adaptation.complete_max_steps,
             "complete_patience": self.adaptation.complete_patience,
@@ -143,6 +187,35 @@ class ExperimentConfig:
             raise ValueError("fast_steps must be unique")
         if any(step < 0 for step in self.adaptation.fast_steps):
             raise ValueError("fast_steps cannot contain negative values")
+        if self.maml.inner_steps not in self.maml.inner_steps_candidates:
+            raise ValueError("maml.inner_steps must be listed in inner_steps_candidates")
+        weights = {int(step): float(weight) for step, weight in self.maml.multi_step_query_weights.items()}
+        if not weights or any(step <= 0 or step > self.maml.inner_steps for step in weights):
+            raise ValueError("multi_step_query_weights steps must be within inner_steps")
+        if any(weight < 0 for weight in weights.values()) or sum(weights.values()) <= 0:
+            raise ValueError("multi-step query weights must be nonnegative with positive sum")
+        self.maml.multi_step_query_weights = weights
+        adaptation = self.adaptation
+        if adaptation.recursive_loss_reduction not in {"point_balanced", "sample_balanced"}:
+            raise ValueError("adaptation recursive_loss_reduction is invalid")
+        if adaptation.fast_sampling_mode not in {"random", "length_stratified", "full_support"}:
+            raise ValueError("adaptation.fast_sampling_mode is invalid")
+        if adaptation.sampling_mode not in {"random", "length_stratified", "full_support"}:
+            raise ValueError("adaptation.sampling_mode is invalid")
+        if adaptation.checkpoint_selection != "support_recursive_validation":
+            raise ValueError("only support_recursive_validation checkpoint selection is safe")
+        if adaptation.scheduler not in {"constant", "step", "plateau"}:
+            raise ValueError("adaptation.scheduler must be constant, step, or plateau")
+        if not 0.0 < adaptation.validation_ratio < 1.0:
+            raise ValueError("adaptation.validation_ratio must be in (0,1)")
+        if adaptation.minimum_validation_length <= 0:
+            raise ValueError("minimum_validation_length must be positive")
+        if adaptation.maximum_validation_length < adaptation.minimum_validation_length:
+            raise ValueError("maximum_validation_length must be >= minimum")
+        if adaptation.length_stratified_bins <= 0:
+            raise ValueError("length_stratified_bins must be positive")
+        if adaptation.gradient_clip_norm is not None and adaptation.gradient_clip_norm <= 0:
+            raise ValueError("adaptation.gradient_clip_norm must be positive or null")
         if not 0.0 < self.evaluation.eol_threshold < 1.0:
             raise ValueError("eol_threshold must be between 0 and 1")
         if self.evaluation.forecast_mode not in {"paper", "deployment"}:

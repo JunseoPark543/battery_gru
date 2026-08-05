@@ -53,6 +53,22 @@ python -m paper_reproduction.main \
   --checkpoint outputs/paper_reproduction/RUN/checkpoints/best_meta_model.pt
 ```
 
+Adapt one cell with the deployment-safe defaults (the default cell for
+`--mode adapt` is `CALCE_CX2_37.pkl`):
+
+```bash
+python -m paper_reproduction.main \
+  --mode adapt \
+  --checkpoint outputs/paper_reproduction/RUN/checkpoints/best_meta_model.pt \
+  --complete-learning-rate 0.005 \
+  --scheduler constant \
+  --test-cell CALCE_CX2_37.pkl
+```
+
+Useful adaptation overrides are `--loss-reduction`, `--sampling-mode`,
+`--fast-sampling-mode`, `--gradient-clip-norm`, `--complete-max-steps`, and
+`--complete-patience`. Pass `--gradient-clip-norm null` to disable clipping.
+
 Resume at the last completed meta epoch:
 
 ```bash
@@ -116,7 +132,14 @@ python -m paper_reproduction.main --mode optuna
 - Default outer learning rate: `1e-3`.
 - Meta early stopping: mean post-adaptation query loss over the five training
   cells, because no separate meta-validation split was specified.
-- Complete-adaptation early stopping: a fixed support-only recursive probe batch.
+- Fast adaptation: one continuous random-batch SGD path at learning rate 0.05;
+  steps 0, 1, 3, and 5 are snapshots of that path, not independent reruns.
+- Complete adaptation: learning rate 0.005, sample-balanced recursive loss,
+  length-stratified batches, and global gradient clipping at 1.0 by default.
+- Complete checkpoint selection and early stopping: recursive MAE on the last
+  chronological 20% of the observed support (bounded to 20–100 points).
+- Oracle checkpoint selection by query MAE is saved only as a clearly labeled
+  diagnostic and is never used as deployment performance.
 - Paper evaluation horizon: exact held-out query length.
 - Legacy `max_forecast_cycle: 2000`: retained only for backward-compatible
   deployment mode when `max_prediction_length` is not supplied.
@@ -127,7 +150,68 @@ report paper-comparison units (`mae_percent`, `rmse_percent`). Figure titles and
 console meta-test logs show percent values.
 
 CX2_37 and CX2_38 are loaded only after meta-training/checkpoint selection and
-are never used in the outer update or early stopping.
+are never used in the outer update or meta early stopping. During meta-test,
+query labels are used under `torch.no_grad()` for metrics/oracle diagnostics;
+only chronological support validation can select the deployment checkpoint.
+
+Every complete trajectory writes per-step support/query metrics, pre/post-clip
+gradient norms, update norms, sampled split indices, recursive forecast
+endpoints, EOL, and RUL to `adaptation/adaptation_diagnostics.csv`. The selected
+deployment state and the final state are both retained.
+
+## CX2_37 L=500 comparison matrix
+
+The baseline measured before the adaptation rewrite is preserved in
+`paper_reproduction/baseline_cx2_37_l500.csv`. Run experiments A–F with:
+
+```bash
+python -m paper_reproduction.run_adaptation_experiments \
+  --checkpoint outputs/paper_reproduction/RUN/checkpoints/best_meta_model.pt \
+  --device cuda:0
+```
+
+The script writes `experiment_comparison.csv`, one diagnostics CSV per
+experiment, and best/final complete states. Its default is the configured
+500-step maximum with chronological-validation early stopping. The optional
+`--complete-max-steps` flag is for smoke/debug runs; results produced with it
+must not be reported as the full 500-step comparison.
+
+For C–E, point-balanced loss, random sampling, and no clipping are held fixed so
+only complete learning rate changes. F is the stabilized combination:
+sample-balanced loss, length-stratified sampling, and clip norm 1.0.
+
+## Output layout
+
+A single-cell `--mode adapt` run writes:
+
+```text
+<run>/
+├── config.yaml
+├── preprocessing_summary.csv
+├── checkpoints/
+│   ├── meta_model.pt
+│   ├── complete_best_model.pt
+│   └── complete_final_model.pt
+├── adaptation/
+│   ├── adaptation_diagnostics.csv
+│   ├── fast_0_metrics.json
+│   ├── fast_1_metrics.json
+│   ├── fast_3_metrics.json
+│   ├── fast_5_metrics.json
+│   ├── complete_deployment_safe_metrics.json
+│   └── complete_oracle_diagnostic_metrics.json
+└── plots/
+    ├── adaptation_step_vs_support_loss.png
+    ├── adaptation_step_vs_query_mae.png
+    ├── adaptation_step_vs_gradient_norm.png
+    ├── adaptation_step_vs_update_norm.png
+    └── recursive_forecast_by_step.png
+```
+
+The current CALCE pickle gives CX2_37 1,072 cleaned cycles and therefore 572
+query points after L=500. `preprocessing_summary.csv` records the corresponding
+counts and extraction choices for all seven cells, making a different paper
+source/preprocessing version visible rather than silently forcing equal lengths.
 
 ## Tests
 

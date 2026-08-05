@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import random
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,7 +20,7 @@ if __package__ in {None, ""}:
 
 from paper_reproduction.adapt_and_test import evaluate_test_tasks
 from paper_reproduction.config import ExperimentConfig, load_config, save_config
-from paper_reproduction.data import load_tasks
+from paper_reproduction.data import load_tasks, preprocessing_summary
 from paper_reproduction.maml_train import (
     load_meta_checkpoint,
     run_optuna_search,
@@ -83,11 +84,37 @@ def _rooted(path: str | Path, root: Path) -> Path:
 def _new_run_dir(config: ExperimentConfig, root: Path, mode: str) -> Path:
     output = _rooted(config.paths.output_dir, root)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    return output / f"{timestamp}_{mode}_L{config.data.history_length}_seed{config.seed}"
+    label = "".join(
+        character if character.isalnum() or character in {"-", "_"} else "-"
+        for character in config.maml.experiment_label
+    ).strip("-")
+    return output / (
+        f"{timestamp}_{mode}_{label}_inner{config.maml.inner_steps}_"
+        f"L{config.data.history_length}_seed{config.seed}"
+    )
 
 
 def _write_manifest(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, allow_nan=True), encoding="utf-8")
+
+
+def _parse_multi_step_weights(value: str) -> dict[int, float]:
+    try:
+        pairs = [item.split(":", maxsplit=1) for item in value.split(",")]
+        return {int(step): float(weight) for step, weight in pairs}
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            "weights must look like 1:0.2,3:0.3,5:0.5"
+        ) from exc
+
+
+def _parse_optional_float(value: str) -> float | None:
+    if value.lower() in {"none", "null", "off"}:
+        return None
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected a number or null") from exc
 
 
 def run(args: argparse.Namespace) -> Path:
@@ -103,6 +130,37 @@ def run(args: argparse.Namespace) -> Path:
         config.evaluation.forecast_mode = args.forecast_mode
     if args.max_prediction_length is not None:
         config.evaluation.max_prediction_length = args.max_prediction_length
+    if args.fast_learning_rate is not None:
+        config.adaptation.learning_rate = None
+        config.adaptation.fast_learning_rate = args.fast_learning_rate
+    if args.complete_learning_rate is not None:
+        config.adaptation.learning_rate = None
+        config.adaptation.complete_learning_rate = args.complete_learning_rate
+    if args.complete_max_steps is not None:
+        config.adaptation.complete_max_steps = args.complete_max_steps
+    if args.complete_patience is not None:
+        config.adaptation.complete_patience = args.complete_patience
+    if args.scheduler is not None:
+        config.adaptation.scheduler = args.scheduler
+    if args.loss_reduction is not None:
+        config.loss.recursive_reduction = args.loss_reduction
+        config.adaptation.recursive_loss_reduction = args.loss_reduction
+    if args.sampling_mode is not None:
+        config.adaptation.sampling_mode = args.sampling_mode
+    if args.fast_sampling_mode is not None:
+        config.adaptation.fast_sampling_mode = args.fast_sampling_mode
+    if hasattr(args, "gradient_clip_norm"):
+        config.adaptation.gradient_clip_norm = args.gradient_clip_norm
+    if args.inner_steps is not None:
+        config.maml.inner_steps = args.inner_steps
+        if args.multi_step_query_weights is None:
+            config.maml.multi_step_query_weights = {args.inner_steps: 1.0}
+    if args.multi_step_query_weights is not None:
+        config.maml.multi_step_query_weights = args.multi_step_query_weights
+    if args.experiment_label is not None:
+        config.maml.experiment_label = args.experiment_label
+    if args.oracle_diagnostics is not None:
+        config.adaptation.oracle_diagnostics = args.oracle_diagnostics
     config.validate()
     seed_everything(config.seed)
     device = resolve_device(config.device)
@@ -114,6 +172,7 @@ def run(args: argparse.Namespace) -> Path:
         run_dir = _new_run_dir(config, root, args.mode)
     run_dir.mkdir(parents=True, exist_ok=True)
     logger = configure_logger(run_dir / "logs/run.log")
+    save_config(config, run_dir / "config.yaml")
     save_config(config, run_dir / "config_resolved.yaml")
     manifest: dict[str, Any] = {
         "status": "running",
@@ -170,7 +229,7 @@ def run(args: argparse.Namespace) -> Path:
         )
     else:
         if args.checkpoint is None:
-            raise ValueError("--checkpoint is required in test mode")
+            raise ValueError("--checkpoint is required in test/adapt mode")
         best_checkpoint = Path(args.checkpoint).resolve()
         payload = load_meta_checkpoint(best_checkpoint, model, device)
         if int(payload["history_length"]) != config.data.history_length:
@@ -179,16 +238,50 @@ def run(args: argparse.Namespace) -> Path:
             raise ValueError("test config training split differs from checkpoint")
         model.to(device).eval()
 
-    if args.mode in {"test", "all"}:
+    canonical_meta_checkpoint = run_dir / "checkpoints/meta_model.pt"
+    canonical_meta_checkpoint.parent.mkdir(parents=True, exist_ok=True)
+    if best_checkpoint.resolve() != canonical_meta_checkpoint.resolve():
+        shutil.copy2(best_checkpoint, canonical_meta_checkpoint)
+
+    # This report intentionally runs only after the meta checkpoint is fixed.
+    # Loading test-cell labels for diagnostics therefore cannot affect training
+    # or model selection.
+    all_tasks = load_tasks(
+        calce_dir,
+        [*config.data.train_cells, *config.data.test_cells],
+    )
+    preprocessing_summary(
+        all_tasks,
+        config.data.history_length,
+        config.evaluation.eol_threshold,
+    ).to_csv(run_dir / "preprocessing_summary.csv", index=False)
+
+    if args.mode in {"test", "adapt", "all"}:
         # Meta-test cells are loaded only after meta-training/checkpoint selection.
-        test_tasks = load_tasks(calce_dir, config.data.test_cells)
+        selected_test_cells = (
+            [args.test_cell]
+            if args.test_cell is not None
+            else (
+                [config.data.test_cells[0]]
+                if args.mode == "adapt"
+                else config.data.test_cells
+            )
+        )
+        unknown = set(selected_test_cells) - set(config.data.test_cells)
+        if unknown:
+            raise ValueError(f"--test-cell is not in configured test cells: {sorted(unknown)}")
+        by_name = {task.name: task for task in all_tasks}
+        test_tasks = [by_name[name] for name in selected_test_cells]
+        flat_output = args.mode == "adapt" and len(test_tasks) == 1
+        test_output = run_dir if flat_output else run_dir / "meta_test"
         summary = evaluate_test_tasks(
             model,
             test_tasks,
             config,
             device,
-            run_dir / "meta_test",
+            test_output,
             logger,
+            flat_output=flat_output,
         )
         manifest["meta_test_rows"] = len(summary)
         manifest["checkpoint_used_for_test"] = str(best_checkpoint)
@@ -206,7 +299,9 @@ def parse_args() -> argparse.Namespace:
         description="Full second-order GRU MAML reproduction for CALCE SOH/RUL"
     )
     parser.add_argument("--config", default="paper_reproduction/config.yaml")
-    parser.add_argument("--mode", choices=["train", "test", "all", "optuna"], default="all")
+    parser.add_argument(
+        "--mode", choices=["train", "test", "adapt", "all", "optuna"], default="all"
+    )
     parser.add_argument("--device", help="auto, cpu, cuda, cuda:0, cuda:1, ...")
     parser.add_argument("--checkpoint", help="best_meta_model.pt for test-only mode")
     parser.add_argument("--resume", help="last.pt for resumable train/all mode")
@@ -214,6 +309,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-epochs", type=int)
     parser.add_argument("--forecast-mode", choices=["paper", "deployment"])
     parser.add_argument("--max-prediction-length", type=int)
+    parser.add_argument("--test-cell", help="adapt only this configured meta-test cell")
+    parser.add_argument("--fast-learning-rate", type=float)
+    parser.add_argument("--complete-learning-rate", type=float)
+    parser.add_argument("--complete-max-steps", type=int)
+    parser.add_argument("--complete-patience", type=int)
+    parser.add_argument("--scheduler", choices=["constant", "step", "plateau"])
+    parser.add_argument(
+        "--loss-reduction", choices=["point_balanced", "sample_balanced"]
+    )
+    parser.add_argument(
+        "--sampling-mode", choices=["random", "length_stratified", "full_support"]
+    )
+    parser.add_argument(
+        "--fast-sampling-mode", choices=["random", "length_stratified", "full_support"]
+    )
+    parser.add_argument(
+        "--gradient-clip-norm",
+        type=_parse_optional_float,
+        default=argparse.SUPPRESS,
+        help="adaptation clip norm, or null to disable",
+    )
+    parser.add_argument("--inner-steps", type=int, choices=[1, 3, 5])
+    parser.add_argument(
+        "--multi-step-query-weights",
+        type=_parse_multi_step_weights,
+        help="for example 1:0.2,3:0.3,5:0.5",
+    )
+    parser.add_argument("--experiment-label")
+    parser.add_argument(
+        "--oracle-diagnostics",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
     return parser.parse_args()
 
 

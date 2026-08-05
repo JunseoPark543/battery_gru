@@ -43,6 +43,12 @@ class CellTask:
     name: str
     cycles: np.ndarray
     soh: np.ndarray
+    raw_cycle_count: int | None = None
+    cleaned_cycle_count: int | None = None
+    interpolated_cycle_count: int = 0
+    missing_cycle_count: int = 0
+    removed_outlier_count: int = 0
+    nominal_capacity_ah: float | None = None
 
     def __post_init__(self) -> None:
         cycles = np.asarray(self.cycles, dtype=np.int64).copy()
@@ -104,14 +110,27 @@ def load_cell_task(path: str | Path) -> CellTask:
     if not by_cycle:
         raise ValueError(f"{source.name}: no cycle data")
     cycles = np.arange(min(by_cycle), max(by_cycle) + 1, dtype=np.int64)
-    capacity_series = pd.Series(by_cycle, dtype=float).reindex(cycles)
+    original_capacity = pd.Series(by_cycle, dtype=float).reindex(cycles)
+    interpolated_count = int(original_capacity.isna().sum())
+    missing_cycle_count = len(cycles) - len(by_cycle)
+    capacity_series = original_capacity.interpolate(method="linear", limit_direction="both")
     capacity_series = capacity_series.interpolate(method="linear", limit_direction="both")
     if capacity_series.isna().any():
         raise ValueError(f"{source.name}: capacity remains missing after interpolation")
     soh = capacity_series.to_numpy(dtype=np.float64) / nominal
     # Paper assumption: SOH is already scaled. Reproduction choice: do not clip
     # or normalize even if a measured value is marginally outside [0, 1].
-    return CellTask(source.name, cycles, soh)
+    return CellTask(
+        source.name,
+        cycles,
+        soh,
+        raw_cycle_count=len(records),
+        cleaned_cycle_count=len(cycles),
+        interpolated_cycle_count=interpolated_count,
+        missing_cycle_count=missing_cycle_count,
+        removed_outlier_count=0,
+        nominal_capacity_ah=nominal,
+    )
 
 
 def load_tasks(calce_dir: str | Path, names: Sequence[str]) -> list[CellTask]:
@@ -148,6 +167,9 @@ class RecursivePairDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         return self.pairs[index]
+
+    def split_index(self, index: int) -> int:
+        return len(self.pairs[index][0])
 
 
 class QuerySequenceDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
@@ -196,9 +218,79 @@ def sample_support_batch(
     batch_size: int,
     generator: torch.Generator,
     device: torch.device,
+    mode: str = "random",
+    length_bins: int = 5,
 ) -> dict[str, torch.Tensor]:
     count = min(batch_size, len(dataset))
-    indices = torch.randperm(len(dataset), generator=generator)[:count].tolist()
+    if mode == "full_support":
+        indices = list(range(len(dataset)))
+    elif mode == "random":
+        indices = torch.randperm(len(dataset), generator=generator)[:count].tolist()
+    elif mode == "length_stratified":
+        bins = [chunk for chunk in torch.tensor_split(torch.arange(len(dataset)), length_bins) if len(chunk)]
+        base, remainder = divmod(count, len(bins))
+        selected: list[int] = []
+        for bin_index, candidates in enumerate(bins):
+            requested = base + (1 if bin_index < remainder else 0)
+            order = torch.randperm(len(candidates), generator=generator)
+            selected.extend(candidates[order[:min(requested, len(candidates))]].tolist())
+        if len(selected) < count:
+            remaining = torch.tensor(
+                [index for index in range(len(dataset)) if index not in set(selected)],
+                dtype=torch.long,
+            )
+            if len(remaining):
+                order = torch.randperm(len(remaining), generator=generator)
+                selected.extend(remaining[order[:count - len(selected)]].tolist())
+        shuffle = torch.randperm(len(selected), generator=generator)
+        indices = torch.tensor(selected, dtype=torch.long)[shuffle].tolist()
+    else:
+        raise ValueError("sampling mode must be random, length_stratified, or full_support")
     batch = variable_length_collate([dataset[index] for index in indices])
+    batch["sample_indices"] = torch.tensor(indices, dtype=torch.long)
+    batch["split_indices"] = torch.tensor(
+        [dataset.split_index(index) for index in indices], dtype=torch.long
+    )
     return {key: value.to(device) for key, value in batch.items()}
 
+
+def preprocessing_summary(
+    tasks: Sequence[CellTask],
+    history_length: int,
+    eol_threshold: float,
+) -> pd.DataFrame:
+    """Describe the exact preprocessing and usable query length of every cell."""
+    from .metrics import last_hitting_eol
+
+    records: list[dict[str, Any]] = []
+    for task in tasks:
+        cycle_500 = np.flatnonzero(task.cycles == 500)
+        records.append(
+            {
+                "cell": task.name,
+                "raw_cycle_count": task.raw_cycle_count,
+                "cleaned_cycle_count": task.cleaned_cycle_count or len(task.soh),
+                "interpolated_cycle_count": task.interpolated_cycle_count,
+                "first_cycle": int(task.cycles[0]),
+                "last_cycle": int(task.cycles[-1]),
+                "missing_cycle_count": task.missing_cycle_count,
+                "removed_outlier_count": task.removed_outlier_count,
+                "nominal_capacity_ah": task.nominal_capacity_ah,
+                "first_soh": float(task.soh[0]),
+                "soh_at_cycle_500": (
+                    float(task.soh[cycle_500[0]]) if cycle_500.size else float("nan")
+                ),
+                "final_soh": float(task.soh[-1]),
+                "actual_eol_cycle": last_hitting_eol(
+                    task.cycles, task.soh, eol_threshold
+                ),
+                "history_length": history_length,
+                "query_length": max(0, len(task.soh) - history_length),
+                "capacity_extraction": "last_finite_discharge_capacity",
+                "soh_formula": "discharge_capacity_ah/nominal_capacity_ah",
+                "interpolation": "linear_both_directions",
+                "outlier_removal": "none",
+                "sequence_truncated": False,
+            }
+        )
+    return pd.DataFrame(records)

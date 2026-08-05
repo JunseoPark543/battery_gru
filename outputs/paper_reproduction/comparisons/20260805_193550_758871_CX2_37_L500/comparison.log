@@ -1,0 +1,3 @@
+2026-08-05 19:36:58,222 | INFO | starting C lr=0.05 reduction=point_balanced sampling=random clip=None
+2026-08-05 19:39:24,228 | INFO | starting D lr=0.005 reduction=point_balanced sampling=random clip=None
+2026-08-05 19:43:02,277 | INFO | starting E lr=0.001 reduction=point_balanced sampling=random clip=None

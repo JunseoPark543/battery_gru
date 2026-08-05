@@ -1,0 +1,2 @@
+cell,raw_cycle_count,cleaned_cycle_count,interpolated_cycle_count,first_cycle,last_cycle,missing_cycle_count,removed_outlier_count,nominal_capacity_ah,first_soh,soh_at_cycle_500,final_soh,actual_eol_cycle,history_length,query_length,capacity_extraction,soh_formula,interpolation,outlier_removal,sequence_truncated
+CALCE_CX2_37.pkl,1072,1072,0,1,1072,0,0,1.35,0.9995496399535674,0.8273318232419692,0.6088488299119622,882,500,572,last_finite_discharge_capacity,discharge_capacity_ah/nominal_capacity_ah,linear_both_directions,none,False

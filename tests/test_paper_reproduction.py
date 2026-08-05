@@ -17,7 +17,7 @@ from paper_reproduction.data import (
     sample_support_batch,
     variable_length_collate,
 )
-from paper_reproduction.losses import masked_mae, masked_mse
+from paper_reproduction.losses import get_loss, masked_mae, masked_mse
 from paper_reproduction.maml_train import (
     _model_loss,
     _task_post_adaptation_loss,
@@ -338,7 +338,7 @@ def test_synthetic_full_maml_and_meta_test_outputs(tmp_path):
         train_tasks,
         config,
         torch.device("cpu"),
-        masked_mse,
+        get_loss(config.loss.kind, config.loss.recursive_reduction),
     )
     assert recomputed_selection_loss == pytest.approx(
         checkpoint["best_meta_loss"], rel=0, abs=1.0e-12
@@ -352,11 +352,21 @@ def test_synthetic_full_maml_and_meta_test_outputs(tmp_path):
         tmp_path / "meta_test",
         logger,
     )
-    assert len(summary) == 6
-    assert set(summary["mode"]) == {"fast_0_steps", "fast_1_steps", "complete"}
+    assert len(summary) == 8
+    assert set(summary["mode"]) == {
+        "fast_0_steps",
+        "fast_1_steps",
+        "complete_deployment_safe",
+        "complete_oracle_diagnostic",
+    }
     assert set(summary["point_count"]) == {6}
     np.testing.assert_allclose(summary["mae_percent"], 100.0 * summary["mae"])
     assert (tmp_path / "meta_test/meta_test_summary.csv").is_file()
+    for cell in config.data.test_cells:
+        root = tmp_path / "meta_test" / cell.removesuffix(".pkl")
+        assert (root / "adaptation/adaptation_diagnostics.csv").is_file()
+        assert (root / "checkpoints/complete_best_model.pt").is_file()
+        assert (root / "checkpoints/complete_final_model.pt").is_file()
 
 
 def test_checkpoint_resume_matches_continuous_same_seed(tmp_path):
