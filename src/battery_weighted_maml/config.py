@@ -54,7 +54,10 @@ class WeightConfig:
 
 @dataclass
 class AdaptationConfig:
-    fast_steps: int = 1
+    # A scalar remains accepted when loading older YAML files.
+    fast_steps: list[int] | int = field(
+        default_factory=lambda: [1, 3, 5, 10, 15, 20]
+    )
     full_max_steps: int = 200
     full_patience: int = 20
     learning_rate: float = 0.05
@@ -129,7 +132,23 @@ class ExperimentConfig:
             raise ValueError("weights.diagonal_jitter cannot be negative")
         if not self.weights.detach_alpha:
             raise ValueError("detach_alpha must remain true for the QP weighting design")
-        if self.adaptation.fast_steps <= 0 or self.adaptation.full_max_steps <= 0:
+        raw_fast_steps = self.adaptation.fast_steps
+        if isinstance(raw_fast_steps, int):
+            fast_steps = [raw_fast_steps]
+        elif isinstance(raw_fast_steps, list) and all(
+            isinstance(step, int) for step in raw_fast_steps
+        ):
+            fast_steps = list(raw_fast_steps)
+        else:
+            raise ValueError("adaptation.fast_steps must be an integer or integer list")
+        if (
+            not fast_steps
+            or any(step <= 0 for step in fast_steps)
+            or fast_steps != sorted(set(fast_steps))
+        ):
+            raise ValueError("adaptation.fast_steps must be unique, increasing, and positive")
+        self.adaptation.fast_steps = fast_steps
+        if self.adaptation.full_max_steps <= 0:
             raise ValueError("adaptation steps must be positive")
         if self.adaptation.full_patience <= 0 or self.adaptation.learning_rate <= 0:
             raise ValueError("adaptation patience and learning rate must be positive")

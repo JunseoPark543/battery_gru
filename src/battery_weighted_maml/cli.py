@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import platform
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -164,6 +165,7 @@ def run_experiment(
         raise ValueError("history_length must be at least 2")
     if smoke_test:
         resolved.maml.meta_iterations = 2
+        resolved.adaptation.fast_steps = [1, 2]
         resolved.adaptation.full_max_steps = 2
         resolved.adaptation.full_patience = 2
         resolved.data.history_lengths = [history_length]
@@ -247,16 +249,18 @@ def run_experiment(
     load_checkpoint(best_path, model, map_location=device)
     model.to(device)
     selected_weights = trainer.compute_weights()
+    fast_steps = list(resolved.adaptation.fast_steps)
     fast = adapt_target(
         model,
         target_support,
-        max_steps=resolved.adaptation.fast_steps,
+        max_steps=max(fast_steps),
         learning_rate=resolved.adaptation.learning_rate,
         batch_size=resolved.maml.inner_batch_size,
         teacher_forcing_ratio=resolved.model.teacher_forcing_ratio,
         device=device,
         generator=make_generator(resolved.seed + 2001, device),
         patience=None,
+        capture_steps=fast_steps,
     )
     full = adapt_target(
         model,
@@ -269,15 +273,57 @@ def run_experiment(
         generator=make_generator(resolved.seed + 3001, device),
         patience=resolved.adaptation.full_patience,
     )
+    fast.history["is_reported_step"] = fast.history["step"].isin(fast_steps)
     fast.history.to_csv(run_dir / "adaptation/fast_adaptation_history.csv", index=False)
     full.history.to_csv(run_dir / "adaptation/full_adaptation_history.csv", index=False)
     # Target future and true EOL become accessible only after both adaptations are complete.
     evaluation_view = TargetEvaluationView.after_training(
         target_full, history_length, resolved.model.features
     )
-    fast_result = evaluate_target(
-        fast.model, evaluation_view, history_length, resolved.data.max_forecast_cycle,
-        resolved.data.eol_threshold, "fast", run_dir, logger,
+    fast_results: dict[int, Any] = {}
+    for step in fast_steps:
+        snapshot = fast.snapshots.get(step)
+        if snapshot is None:
+            raise RuntimeError(f"fast adaptation did not capture requested step {step}")
+        mode = f"fast_{step}"
+        result = evaluate_target(
+            snapshot,
+            evaluation_view,
+            history_length,
+            resolved.data.max_forecast_cycle,
+            resolved.data.eol_threshold,
+            mode,
+            run_dir,
+            logger,
+        )
+        plot_target_prediction(
+            result.predictions,
+            run_dir / f"figures/target_soh_{mode}.png",
+            f"{target_name} fast adaptation ({step} steps)",
+            metrics=result.metrics,
+        )
+        fast_results[step] = result
+    pd.DataFrame(
+        [
+            {"fast_step": step, **result.metrics}
+            for step, result in fast_results.items()
+        ]
+    ).to_csv(run_dir / "metrics/fast_metrics_by_step.csv", index=False)
+
+    # Preserve the historical one-step filenames for downstream aggregation.
+    legacy_fast_step = 1 if 1 in fast_results else min(fast_results)
+    legacy_mode = f"fast_{legacy_fast_step}"
+    shutil.copy2(
+        run_dir / f"metrics/{legacy_mode}_metrics.json",
+        run_dir / "metrics/fast_metrics.json",
+    )
+    shutil.copy2(
+        run_dir / f"predictions/target_{legacy_mode}_prediction.csv",
+        run_dir / "predictions/target_fast_prediction.csv",
+    )
+    shutil.copy2(
+        run_dir / f"figures/target_soh_{legacy_mode}.png",
+        run_dir / "figures/target_soh_fast.png",
     )
     full_result = evaluate_target(
         full.model, evaluation_view, history_length, resolved.data.max_forecast_cycle,
@@ -286,11 +332,6 @@ def run_experiment(
     _write_final_weights(
         run_dir, source_names, selected_weights.alpha,
         selected_weights.kernel_ss,
-    )
-    plot_target_prediction(
-        fast_result.predictions, run_dir / "figures/target_soh_fast.png",
-        f"{target_name} fast adaptation",
-        metrics=fast_result.metrics,
     )
     plot_target_prediction(
         full_result.predictions, run_dir / "figures/target_soh_full.png",
@@ -302,7 +343,12 @@ def run_experiment(
         {
             "status": "completed",
             "completed_at_utc": datetime.now(timezone.utc).isoformat(),
-            "fast_metrics": fast_result.metrics,
+            "fast_steps": fast_steps,
+            "fast_metrics": fast_results[legacy_fast_step].metrics,
+            "fast_metrics_legacy_step": legacy_fast_step,
+            "fast_metrics_by_step": {
+                str(step): result.metrics for step, result in fast_results.items()
+            },
             "full_metrics": full_result.metrics,
             "best_source_meta_loss_ema": training_result.best_metric,
         }

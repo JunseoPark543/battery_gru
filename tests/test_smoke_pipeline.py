@@ -63,7 +63,12 @@ def test_end_to_end_smoke_pipeline(tmp_path):
         "predictions/target_fast_prediction.csv",
         "predictions/target_full_prediction.csv",
         "metrics/fast_metrics.json",
+        "metrics/fast_1_metrics.json",
+        "metrics/fast_2_metrics.json",
+        "metrics/fast_metrics_by_step.csv",
         "metrics/full_metrics.json",
+        "figures/target_soh_fast_1.png",
+        "figures/target_soh_fast_2.png",
         "figures/target_soh_full.png",
     ]
     for relative in required:
@@ -72,3 +77,5 @@ def test_end_to_end_smoke_pipeline(tmp_path):
     assert manifest["status"] == "completed"
     assert manifest["history_length"] == 4
     assert manifest["resolved_config"]["model"]["features"] == ["soh", "voltage_mean"]
+    assert manifest["fast_steps"] == [1, 2]
+    assert set(manifest["fast_metrics_by_step"]) == {"1", "2"}

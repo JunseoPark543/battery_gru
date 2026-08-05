@@ -184,6 +184,15 @@ python scripts/run_single.py --resume outputs/runs/RUN_NAME/checkpoints/last.pt 
 
 Checkpoint에는 모델/outer optimizer, iteration, source-only best metric, resolved config, target/source, L, mode, seed, alpha와 Python/NumPy/Torch/CUDA RNG 상태가 포함됩니다.
 
+Target fast adaptation은 기본적으로 하나의 연속 SGD 경로를 20 step까지 실행하고
+`1, 3, 5, 10, 15, 20` step의 모델을 snapshot으로 평가합니다. 각 step을 처음부터
+별도로 재실행하지 않으므로 step 1 모델은 step 3 모델의 정확한 prefix입니다.
+
+```yaml
+adaptation:
+  fast_steps: [1, 3, 5, 10, 15, 20]
+```
+
 ## 8. 출력
 
 각 run은 `outputs/runs/{timestamp}_{mode}_{target}_L{L}_seed{seed}/` 아래 독립적으로 생성됩니다.
@@ -196,10 +205,14 @@ preprocessing/{source_summary.csv,target_support.csv}
 training/{iteration_history.csv,source_loss_history.csv,gradient_history.csv}
 weights/{alpha_history.csv,final_alpha.csv,kernel_matrix_final.csv,alpha_heatmap.png}
 adaptation/{fast_adaptation_history.csv,full_adaptation_history.csv}
-predictions/{target_fast_prediction.csv,target_full_prediction.csv}
-metrics/{fast_metrics.json,full_metrics.json}
-figures/{target_soh_fast.png,target_soh_full.png,training_loss.png,alpha_trajectory.png,source_query_losses.png}
+predictions/{target_fast_1_prediction.csv,...,target_fast_20_prediction.csv,target_full_prediction.csv}
+metrics/{fast_1_metrics.json,...,fast_20_metrics.json,fast_metrics_by_step.csv,full_metrics.json}
+figures/{target_soh_fast_1.png,...,target_soh_fast_20.png,target_soh_full.png,training_loss.png,alpha_trajectory.png,source_query_losses.png}
 ```
+
+기존 집계 코드와의 호환성을 위해 `fast_metrics.json`,
+`target_fast_prediction.csv`, `target_soh_fast.png`는 1-step 결과의 별칭으로 계속
+저장됩니다.
 
 12개 실험 집계는 `outputs/experiment_summary.{csv,json}`과 `outputs/comparison_figures/`에 저장됩니다. Console과 `logs/train.log`에는 source별 loss, 전체 alpha, entropy, effective source 수, MMD, sigma, solver, gradient norm, LR, 시간/ETA와 CUDA 메모리가 기록됩니다.
 

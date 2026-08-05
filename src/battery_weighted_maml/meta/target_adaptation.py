@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Sequence
 
 import pandas as pd
 import torch
@@ -20,6 +21,7 @@ class AdaptationResult:
     history: pd.DataFrame
     best_loss: float
     best_step: int
+    snapshots: dict[int, GRUSeq2Seq] = field(default_factory=dict)
 
 
 def adapt_target(
@@ -32,8 +34,14 @@ def adapt_target(
     device: torch.device,
     generator: torch.Generator,
     patience: int | None = None,
+    capture_steps: Sequence[int] | None = None,
 ) -> AdaptationResult:
     """Fine-tune every model parameter using only ``TargetSupportView`` pairs."""
+    if max_steps <= 0:
+        raise ValueError("max_steps must be positive")
+    requested_steps = set(int(step) for step in (capture_steps or ()))
+    if any(step <= 0 or step > max_steps for step in requested_steps):
+        raise ValueError("capture_steps must lie between 1 and max_steps")
     adapted = copy.deepcopy(model).to(device)
     adapted.train()
     optimizer = torch.optim.SGD(adapted.parameters(), lr=learning_rate)
@@ -43,6 +51,7 @@ def adapt_target(
     best_step = 0
     stale = 0
     records: list[dict[str, float | int]] = []
+    snapshots: dict[int, GRUSeq2Seq] = {}
     for step in range(1, max_steps + 1):
         batch = sample_support_batch(dataset, batch_size, generator, device)
         predictions = adapted(
@@ -60,6 +69,10 @@ def adapt_target(
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
+        if step in requested_steps:
+            snapshot = copy.deepcopy(adapted)
+            snapshot.eval()
+            snapshots[step] = snapshot
         value = float(loss.detach().cpu())
         records.append({"step": step, "support_loss": value})
         if value < best_loss - 1e-12:
@@ -78,4 +91,5 @@ def adapt_target(
         history=pd.DataFrame(records, columns=["step", "support_loss"]),
         best_loss=best_loss,
         best_step=best_step,
+        snapshots=snapshots,
     )
