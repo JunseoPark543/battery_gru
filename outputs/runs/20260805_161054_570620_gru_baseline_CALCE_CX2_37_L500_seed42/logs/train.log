@@ -1,0 +1,45 @@
+2026-08-05 16:10:54,661 | INFO | CALCE_CX2_37.pkl: raw=1072 processed=1072 missing before/after=0/0
+2026-08-05 16:10:54,673 | INFO | Starting plain GRU baseline target=CALCE_CX2_37.pkl L=500 input=['soh'] device=cuda parameters=25793 trainable=25793 weighted_meta_learning=False config={'seed': 42, 'device': 'auto', 'data': {'calce_dir': 'data/CALCE', 'label_path': 'data/Life labels/CALCE_labels.json', 'history_length': 500, 'max_forecast_cycle': 1000, 'eol_threshold': 0.8}, 'model': {'hidden_size': 64, 'num_layers': 1, 'dropout': 0.0}, 'training': {'max_epochs': 300, 'batch_size': 64, 'learning_rate': 0.001, 'weight_decay': 0.0, 'encoder_window': 100, 'forecast_horizon': 25, 'window_stride': 1, 'validation_cycles': 50, 'teacher_forcing_ratio': 0.5, 'gradient_clip_norm': 5.0, 'early_stopping_patience': 30, 'early_stopping_min_delta': 1e-07}, 'logging': {'log_interval': 1, 'checkpoint_interval': 1}}
+2026-08-05 16:10:54,977 | INFO | epoch=1/300 train_mse=0.7368273 validation_mse=0.5185745 best=0.5185745@1 stale=0 grad=2.4909 elapsed=0.2s
+2026-08-05 16:10:55,031 | INFO | epoch=2/300 train_mse=0.5050935 validation_mse=0.3086153 best=0.3086153@2 stale=0 grad=2.2348 elapsed=0.3s
+2026-08-05 16:10:55,083 | INFO | epoch=3/300 train_mse=0.2624608 validation_mse=0.07490213 best=0.07490213@3 stale=0 grad=2.007 elapsed=0.3s
+2026-08-05 16:10:55,135 | INFO | epoch=4/300 train_mse=0.04062605 validation_mse=0.1174686 best=0.07490213@3 stale=1 grad=1.4168 elapsed=0.4s
+2026-08-05 16:10:55,188 | INFO | epoch=5/300 train_mse=0.04675688 validation_mse=0.016587 best=0.016587@5 stale=0 grad=1.8608 elapsed=0.4s
+2026-08-05 16:10:55,239 | INFO | epoch=6/300 train_mse=0.00373238 validation_mse=0.004767254 best=0.004767254@6 stale=0 grad=0.54787 elapsed=0.5s
+2026-08-05 16:10:55,291 | INFO | epoch=7/300 train_mse=0.01298049 validation_mse=0.002069623 best=0.002069623@7 stale=0 grad=0.5976 elapsed=0.6s
+2026-08-05 16:10:55,341 | INFO | epoch=8/300 train_mse=0.00390625 validation_mse=0.004495565 best=0.002069623@7 stale=1 grad=0.4344 elapsed=0.6s
+2026-08-05 16:10:55,393 | INFO | epoch=9/300 train_mse=0.002477515 validation_mse=0.01161976 best=0.002069623@7 stale=2 grad=0.31607 elapsed=0.7s
+2026-08-05 16:10:55,444 | INFO | epoch=10/300 train_mse=0.001734554 validation_mse=0.003359755 best=0.002069623@7 stale=3 grad=0.29987 elapsed=0.7s
+2026-08-05 16:10:55,496 | INFO | epoch=11/300 train_mse=0.0008643016 validation_mse=0.001290517 best=0.001290517@11 stale=0 grad=0.11926 elapsed=0.8s
+2026-08-05 16:10:55,546 | INFO | epoch=12/300 train_mse=0.0009763212 validation_mse=0.002624069 best=0.001290517@11 stale=1 grad=0.14317 elapsed=0.8s
+2026-08-05 16:10:55,597 | INFO | epoch=13/300 train_mse=0.0005056089 validation_mse=0.004494759 best=0.001290517@11 stale=2 grad=0.060341 elapsed=0.9s
+2026-08-05 16:10:55,648 | INFO | epoch=14/300 train_mse=0.0005866306 validation_mse=0.003214251 best=0.001290517@11 stale=3 grad=0.077201 elapsed=0.9s
+2026-08-05 16:10:55,700 | INFO | epoch=15/300 train_mse=0.0004722839 validation_mse=0.002042421 best=0.001290517@11 stale=4 grad=0.026685 elapsed=1.0s
+2026-08-05 16:10:55,751 | INFO | epoch=16/300 train_mse=0.0005111041 validation_mse=0.002533931 best=0.001290517@11 stale=5 grad=0.058044 elapsed=1.0s
+2026-08-05 16:10:55,801 | INFO | epoch=17/300 train_mse=0.0004513744 validation_mse=0.003383288 best=0.001290517@11 stale=6 grad=0.016686 elapsed=1.1s
+2026-08-05 16:10:55,852 | INFO | epoch=18/300 train_mse=0.0004750027 validation_mse=0.003430718 best=0.001290517@11 stale=7 grad=0.047479 elapsed=1.1s
+2026-08-05 16:10:55,903 | INFO | epoch=19/300 train_mse=0.000452513 validation_mse=0.002736575 best=0.001290517@11 stale=8 grad=0.026677 elapsed=1.2s
+2026-08-05 16:10:55,955 | INFO | epoch=20/300 train_mse=0.0004629905 validation_mse=0.002653897 best=0.001290517@11 stale=9 grad=0.039262 elapsed=1.2s
+2026-08-05 16:10:56,006 | INFO | epoch=21/300 train_mse=0.0004560713 validation_mse=0.003041857 best=0.001290517@11 stale=10 grad=0.10625 elapsed=1.3s
+2026-08-05 16:10:56,057 | INFO | epoch=22/300 train_mse=0.0004488915 validation_mse=0.002829527 best=0.001290517@11 stale=11 grad=0.085242 elapsed=1.3s
+2026-08-05 16:10:56,108 | INFO | epoch=23/300 train_mse=0.0004457564 validation_mse=0.003181008 best=0.001290517@11 stale=12 grad=0.02548 elapsed=1.4s
+2026-08-05 16:10:56,159 | INFO | epoch=24/300 train_mse=0.0004544676 validation_mse=0.003090543 best=0.001290517@11 stale=13 grad=0.045619 elapsed=1.4s
+2026-08-05 16:10:56,211 | INFO | epoch=25/300 train_mse=0.0004451629 validation_mse=0.002825547 best=0.001290517@11 stale=14 grad=0.036442 elapsed=1.5s
+2026-08-05 16:10:56,262 | INFO | epoch=26/300 train_mse=0.0004509878 validation_mse=0.002945225 best=0.001290517@11 stale=15 grad=0.067508 elapsed=1.5s
+2026-08-05 16:10:56,313 | INFO | epoch=27/300 train_mse=0.0004484755 validation_mse=0.002735616 best=0.001290517@11 stale=16 grad=0.013309 elapsed=1.6s
+2026-08-05 16:10:56,364 | INFO | epoch=28/300 train_mse=0.0004487317 validation_mse=0.002910564 best=0.001290517@11 stale=17 grad=0.034583 elapsed=1.6s
+2026-08-05 16:10:56,415 | INFO | epoch=29/300 train_mse=0.0004462805 validation_mse=0.002976227 best=0.001290517@11 stale=18 grad=0.050424 elapsed=1.7s
+2026-08-05 16:10:56,467 | INFO | epoch=30/300 train_mse=0.0004523581 validation_mse=0.003222364 best=0.001290517@11 stale=19 grad=0.029116 elapsed=1.7s
+2026-08-05 16:10:56,518 | INFO | epoch=31/300 train_mse=0.0004431599 validation_mse=0.002665872 best=0.001290517@11 stale=20 grad=0.079572 elapsed=1.8s
+2026-08-05 16:10:56,570 | INFO | epoch=32/300 train_mse=0.0004631623 validation_mse=0.002458942 best=0.001290517@11 stale=21 grad=0.032674 elapsed=1.8s
+2026-08-05 16:10:56,621 | INFO | epoch=33/300 train_mse=0.0004536453 validation_mse=0.003156708 best=0.001290517@11 stale=22 grad=0.046737 elapsed=1.9s
+2026-08-05 16:10:56,673 | INFO | epoch=34/300 train_mse=0.0004635693 validation_mse=0.003453756 best=0.001290517@11 stale=23 grad=0.047524 elapsed=1.9s
+2026-08-05 16:10:56,725 | INFO | epoch=35/300 train_mse=0.0004487822 validation_mse=0.002735511 best=0.001290517@11 stale=24 grad=0.044369 elapsed=2.0s
+2026-08-05 16:10:56,777 | INFO | epoch=36/300 train_mse=0.0004642161 validation_mse=0.002427452 best=0.001290517@11 stale=25 grad=0.046885 elapsed=2.0s
+2026-08-05 16:10:56,829 | INFO | epoch=37/300 train_mse=0.0004569994 validation_mse=0.003107079 best=0.001290517@11 stale=26 grad=0.039134 elapsed=2.1s
+2026-08-05 16:10:56,881 | INFO | epoch=38/300 train_mse=0.0004509803 validation_mse=0.003079452 best=0.001290517@11 stale=27 grad=0.024632 elapsed=2.1s
+2026-08-05 16:10:56,932 | INFO | epoch=39/300 train_mse=0.0004526925 validation_mse=0.002621614 best=0.001290517@11 stale=28 grad=0.031041 elapsed=2.2s
+2026-08-05 16:10:56,984 | INFO | epoch=40/300 train_mse=0.0004453739 validation_mse=0.003191416 best=0.001290517@11 stale=29 grad=0.10905 elapsed=2.2s
+2026-08-05 16:10:57,034 | INFO | epoch=41/300 train_mse=0.000485764 validation_mse=0.003612258 best=0.001290517@11 stale=30 grad=0.064896 elapsed=2.3s
+2026-08-05 16:10:57,034 | INFO | Early stopping at epoch 41; best validation MSE 0.001290517 at epoch 11
+2026-08-05 16:10:57,176 | INFO | Completed plain GRU baseline: /home/JunseoPark/바탕화면/battery_gru/outputs/runs/20260805_161054_570620_gru_baseline_CALCE_CX2_37_L500_seed42
