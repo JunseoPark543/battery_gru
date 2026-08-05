@@ -1,5 +1,5 @@
 {
-  "started_at_utc": "2026-08-05T15:58:31.622000+00:00",
+  "started_at_utc": "2026-08-05T16:02:50.098572+00:00",
   "python_version": "3.12.3",
   "pytorch_version": "2.13.0+cu130",
   "cuda_version": "13.0",
@@ -21,7 +21,7 @@
   },
   "seed": 42,
   "command": "scripts/run_single.py --resume outputs/runs/20260806_005821_readapt_weighted_CX2_37_L100_soh-voltage_lr0p05_full200/checkpoints/last.pt --config configs/l100_soh_voltage_2300.yaml",
-  "git_commit": "97b134709331a847eddff62a0c657a1735d88f42",
+  "git_commit": "6bda0f8e2d419e55f463005aef5c1a9e507fb616",
   "target": "CALCE_CX2_37.pkl",
   "sources": [
     "CALCE_CX2_16.pkl",
@@ -94,7 +94,7 @@
     "source_mode": "same_family"
   },
   "status": "completed",
-  "completed_at_utc": "2026-08-05T15:58:33.545842+00:00",
+  "completed_at_utc": "2026-08-05T16:02:52.017496+00:00",
   "fast_metrics": {
     "mae": 0.38574295676161185,
     "rmse": 0.4944660714498547,
