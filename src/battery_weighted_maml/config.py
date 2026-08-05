@@ -14,8 +14,9 @@ class DataConfig:
     calce_dir: str = "data/CALCE"
     label_path: str = "data/Life labels/CALCE_labels.json"
     eol_threshold: float = 0.8
-    history_lengths: list[int] = field(default_factory=lambda: [50, 100, 150])
-    max_forecast_cycle: int = 1000
+    history_lengths: list[int] = field(default_factory=lambda: [100])
+    # None means forecast through the target trajectory's final observed cycle.
+    max_forecast_cycle: int | None = None
 
 
 @dataclass
@@ -23,6 +24,7 @@ class ModelConfig:
     input_size: int = 1
     features: list[str] = field(default_factory=lambda: ["soh"])
     voltage_normalization: str = "support_zscore"
+    current_normalization: str = "support_zscore"
     hidden_size: int = 64
     num_layers: int = 1
     dropout: float = 0.0
@@ -98,9 +100,12 @@ class ExperimentConfig:
             raise ValueError("data.eol_threshold must be between 0 and 2")
         if not self.data.history_lengths or any(x < 2 for x in self.data.history_lengths):
             raise ValueError("all data.history_lengths must be >= 2")
-        if self.data.max_forecast_cycle <= max(self.data.history_lengths):
+        if (
+            self.data.max_forecast_cycle is not None
+            and self.data.max_forecast_cycle <= max(self.data.history_lengths)
+        ):
             raise ValueError("max_forecast_cycle must exceed every history length")
-        allowed_features = {"soh", "voltage_mean"}
+        allowed_features = {"soh", "voltage_mean", "current_mean"}
         if not self.model.features or self.model.features[0] != "soh":
             raise ValueError("model.features must start with 'soh'")
         if len(set(self.model.features)) != len(self.model.features):
@@ -112,6 +117,8 @@ class ExperimentConfig:
             raise ValueError("model.input_size must equal len(model.features)")
         if self.model.voltage_normalization != "support_zscore":
             raise ValueError("only support_zscore voltage normalization is supported")
+        if self.model.current_normalization != "support_zscore":
+            raise ValueError("only support_zscore current normalization is supported")
         if self.model.hidden_size <= 0 or self.model.num_layers <= 0:
             raise ValueError("model sizes must be positive")
         if not 0.0 <= self.model.teacher_forcing_ratio <= 1.0:

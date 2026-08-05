@@ -17,9 +17,12 @@ def write_pickle(
     nominal: float = 2.0,
     cell_id: str | None = None,
     voltages: list[object] | None = None,
+    currents: list[object] | None = None,
 ) -> Path:
     if voltages is not None and len(voltages) != len(capacities):
         raise ValueError("voltages and capacities must have equal lengths")
+    if currents is not None and len(currents) != len(capacities):
+        raise ValueError("currents and capacities must have equal lengths")
     payload = {
         "cell_id": cell_id or path.stem,
         "nominal_capacity_in_Ah": nominal,
@@ -27,7 +30,7 @@ def write_pickle(
             {
                 "cycle_number": cycle,
                 "discharge_capacity_in_Ah": value,
-                "current_in_A": [],
+                "current_in_A": [] if currents is None else currents[index],
                 "voltage_in_V": [] if voltages is None else voltages[index],
                 "charge_capacity_in_Ah": [],
                 "time_in_s": [],
@@ -45,6 +48,7 @@ def make_trajectory(
     soh: list[float],
     true_eol: int = 8,
     mean_voltage_v: list[float] | None = None,
+    mean_current_a: list[float] | None = None,
 ) -> FullCellTrajectory:
     values = np.asarray(soh, dtype=float)
     cycles = np.arange(1, len(values) + 1)
@@ -63,6 +67,9 @@ def make_trajectory(
         missing_count_after=0,
         mean_voltage_v=(
             None if mean_voltage_v is None else np.asarray(mean_voltage_v, dtype=float)
+        ),
+        mean_current_a=(
+            None if mean_current_a is None else np.asarray(mean_current_a, dtype=float)
         ),
     )
 

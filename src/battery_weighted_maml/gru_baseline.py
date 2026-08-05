@@ -36,7 +36,8 @@ class BaselineDataConfig:
     calce_dir: str = "data/CALCE"
     label_path: str = "data/Life labels/CALCE_labels.json"
     history_length: int = 500
-    max_forecast_cycle: int = 1000
+    # None means forecast through the target trajectory's final observed cycle.
+    max_forecast_cycle: int | None = None
     eol_threshold: float = 0.8
 
 
@@ -85,7 +86,10 @@ class GRUBaselineConfig:
             raise ValueError("device must be 'auto', 'cpu', or a CUDA device")
         if self.data.history_length < 3:
             raise ValueError("history_length must be at least 3")
-        if self.data.max_forecast_cycle <= self.data.history_length:
+        if (
+            self.data.max_forecast_cycle is not None
+            and self.data.max_forecast_cycle <= self.data.history_length
+        ):
             raise ValueError("max_forecast_cycle must exceed history_length")
         if not 0.0 < self.data.eol_threshold < 2.0:
             raise ValueError("eol_threshold must be between 0 and 2")

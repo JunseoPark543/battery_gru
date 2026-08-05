@@ -92,6 +92,8 @@ Source cell 하나가 task 하나입니다. 초기 `L`개 SOH가 support, 나머
 
 `model.features: [soh, voltage_mean]` 설정에서는 각 cycle의 유한한 `voltage_in_V` 값 평균을 두 번째 encoder 입력으로 사용합니다. 전압은 cell별 초기 L개 support에서 계산한 평균과 표준편차로만 z-score 정규화하므로 미래 전압 정보는 사용하지 않습니다. Decoder와 예측 target은 계속 SOH 하나이며, 미래 전압을 입력으로 요구하지 않습니다.
 
+`model.features: [soh, voltage_mean, current_mean]` 설정에서는 `current_in_A`의 cycle별 유효값 평균을 세 번째 encoder 입력으로 추가합니다. 전류도 cell별 초기 L개 support의 통계만으로 z-score 정규화합니다. Decoder는 계속 SOH 하나만 재귀 입력으로 사용하므로 미래 전압이나 전류가 필요하지 않습니다.
+
 ## 5. Target-aware weighted full MAML
 
 매 meta iteration의 순서는 다음과 같습니다.
@@ -109,7 +111,7 @@ Uniform warm-up이나 target support loss의 meta objective 추가는 없습니�
 
 `FullCellTrajectory`는 orchestration 단계에만 있고 trainer에 전달되지 않습니다. `TargetSupportView`에는 첫 L cycle/SOH만 있으며 future와 true EOL field 또는 전체 trajectory 접근 method가 없습니다. Weight calculator와 `WeightedMAMLTrainer`는 이 view만 받습니다. Fast/full adaptation이 모두 끝난 뒤에만 `TargetEvaluationView.after_training(...)`을 생성해 evaluator가 미래와 label을 읽습니다.
 
-Forecast horizon은 target의 실제 길이나 EOL이 아니라 `max_forecast_cycle - L`로 정합니다. Full adaptation early stopping도 target support loss만 사용합니다.
+Forecast horizon은 기본적으로 `L+1`부터 target 데이터의 마지막 실제 cycle까지입니다. `max_forecast_cycle: null`이 이 동작을 선택하며, 재현 목적의 명시적 상한이 필요할 때만 정수를 지정합니다. Full adaptation early stopping은 target support loss만 사용합니다.
 
 ## 7. 실행 명령
 
@@ -123,6 +125,12 @@ SOH와 cycle 평균 전압을 함께 입력하는 L=100, 2,300 iteration 실험:
 
 ```bash
 python scripts/run_single.py --target CALCE_CX2_37.pkl --history-length 100 --source-mode same_family --config configs/l100_soh_voltage_2300.yaml
+```
+
+SOH, cycle 평균 전압, cycle 평균 전류를 입력하는 L=100, 2,300 iteration 실험:
+
+```bash
+python scripts/run_single.py --target CALCE_CX2_37.pkl --history-length 100 --source-mode same_family --config configs/l100_soh_voltage_current_2300.yaml
 ```
 
 이 설정은 encoder 입력 차원이 2이므로 기존 SOH-only checkpoint에서 resume할 수 없습니다. 새 run으로 시작해야 합니다.

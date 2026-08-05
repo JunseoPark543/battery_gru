@@ -57,6 +57,7 @@ def preprocess_cell(
     log = logger or logging.getLogger("battery_weighted_maml")
     by_cycle: dict[int, float] = {}
     voltage_by_cycle: dict[int, float] = {}
+    current_by_cycle: dict[int, float] = {}
     duplicates: set[int] = set()
     for index, record in enumerate(raw.cycle_records):
         try:
@@ -72,6 +73,7 @@ def preprocess_cell(
             )
         capacity = _last_finite(record["discharge_capacity_in_Ah"])
         voltage = _finite_mean(record.get("voltage_in_V", []))
+        current = _finite_mean(record.get("current_in_A", []))
         if cycle in by_cycle:
             duplicates.add(cycle)
         # The last valid duplicate wins; an invalid duplicate does not erase a valid value.
@@ -79,6 +81,8 @@ def preprocess_cell(
             by_cycle[cycle] = capacity
         if np.isfinite(voltage) or cycle not in voltage_by_cycle:
             voltage_by_cycle[cycle] = voltage
+        if np.isfinite(current) or cycle not in current_by_cycle:
+            current_by_cycle[cycle] = current
     if duplicates:
         log.warning(
             "%s: duplicate cycle_number values %s; retained each last valid record",
@@ -106,6 +110,13 @@ def preprocess_cell(
         ).to_numpy(dtype=np.float64)
     else:
         mean_voltage_v = np.full(len(grid), np.nan, dtype=np.float64)
+    raw_current = pd.Series(current_by_cycle, dtype=float).reindex(grid)
+    if raw_current.notna().any():
+        mean_current_a = raw_current.interpolate(
+            method="linear", limit_direction="both"
+        ).to_numpy(dtype=np.float64)
+    else:
+        mean_current_a = np.full(len(grid), np.nan, dtype=np.float64)
     soh = capacities / raw.nominal_capacity_ah
     if not np.all(np.isfinite(soh)):
         raise ValueError(f"{raw.file_name}: SOH contains non-finite values after preprocessing")
@@ -127,6 +138,7 @@ def preprocess_cell(
         missing_count_before=missing_before,
         missing_count_after=missing_after,
         mean_voltage_v=mean_voltage_v,
+        mean_current_a=mean_current_a,
     )
 
 
@@ -140,6 +152,7 @@ def trajectory_frame(cell: FullCellTrajectory) -> pd.DataFrame:
             "discharge_capacity_Ah": cell.capacities_ah,
             "soh": cell.soh,
             "mean_voltage_V": cell.mean_voltage_v,
+            "mean_current_A": cell.mean_current_a,
             "is_interpolated": cell.is_interpolated,
             "true_eol_cycle": cell.true_eol_cycle,
         }

@@ -36,7 +36,7 @@ def evaluate_target(
     model: GRUSeq2Seq,
     target: TargetEvaluationView,
     history_length: int,
-    max_forecast_cycle: int,
+    max_forecast_cycle: int | None,
     eol_threshold: float,
     adaptation_mode: str,
     output_dir: str | Path,
@@ -44,6 +44,8 @@ def evaluate_target(
 ) -> EvaluationResult:
     """Read target future only here, after adaptation, and save predictions/metrics."""
     log = logger or logging.getLogger("battery_weighted_maml")
+    if max_forecast_cycle is None:
+        max_forecast_cycle = int(target.future_cycles[-1])
     if max_forecast_cycle <= history_length:
         raise ValueError("max_forecast_cycle must be greater than history_length")
     horizon = max_forecast_cycle - history_length

@@ -5,7 +5,8 @@ data:
   calce_dir: data/CALCE
   label_path: data/Life labels/CALCE_labels.json
   history_length: 500
-  max_forecast_cycle: 1000
+  # null: predict through the target's final observed cycle
+  max_forecast_cycle: null
   eol_threshold: 0.8
 
 model:

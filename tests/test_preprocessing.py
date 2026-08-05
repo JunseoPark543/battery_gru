@@ -46,3 +46,13 @@ def test_cycle_mean_voltage_is_extracted_and_interpolated(tmp_path):
     )
     cell = preprocess_cell(load_calce_pickle(path), true_eol_cycle=3)
     np.testing.assert_allclose(cell.mean_voltage_v, [3.7, 3.6, 3.5])
+
+
+def test_cycle_mean_current_is_extracted_and_interpolated(tmp_path):
+    path = write_pickle(
+        tmp_path / "CALCE_CX2_33.pkl",
+        [(1, [2.0]), (3, [1.8])],
+        currents=[[1.8, np.nan, 2.0], [1.4, 1.6]],
+    )
+    cell = preprocess_cell(load_calce_pickle(path), true_eol_cycle=3)
+    np.testing.assert_allclose(cell.mean_current_a, [1.9, 1.7, 1.5])

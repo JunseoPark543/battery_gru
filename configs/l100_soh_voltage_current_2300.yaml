@@ -5,14 +5,15 @@ data:
   calce_dir: data/CALCE
   label_path: data/Life labels/CALCE_labels.json
   eol_threshold: 0.8
-  history_lengths: [500]
-  # null: predict through the target's final observed cycle
+  history_lengths: [100]
+  # null: predict from cycle 101 through the target's final observed cycle
   max_forecast_cycle: null
 
 model:
-  input_size: 1
-  features: [soh]
+  input_size: 3
+  features: [soh, voltage_mean, current_mean]
   voltage_normalization: support_zscore
+  current_normalization: support_zscore
   hidden_size: 64
   num_layers: 1
   dropout: 0.0
@@ -51,3 +52,5 @@ logging:
 evaluation:
   primary_adaptation: full
   save_per_cycle_predictions: true
+
+source_mode: same_family

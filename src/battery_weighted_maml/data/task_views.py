@@ -27,6 +27,7 @@ def build_support_features(
     soh: np.ndarray,
     mean_voltage_v: np.ndarray,
     feature_names: Sequence[str] = ("soh",),
+    mean_current_a: np.ndarray | None = None,
 ) -> np.ndarray:
     """Build features using statistics from this support prefix only."""
     names = tuple(feature_names)
@@ -37,8 +38,15 @@ def build_support_features(
 
     support_soh = np.asarray(soh, dtype=np.float64).reshape(-1)
     voltage = np.asarray(mean_voltage_v, dtype=np.float64).reshape(-1)
+    current = (
+        np.full(len(support_soh), np.nan, dtype=np.float64)
+        if mean_current_a is None
+        else np.asarray(mean_current_a, dtype=np.float64).reshape(-1)
+    )
     if len(support_soh) != len(voltage):
         raise ValueError("SOH and mean-voltage support arrays must be aligned")
+    if len(support_soh) != len(current):
+        raise ValueError("SOH and mean-current support arrays must be aligned")
     if not np.all(np.isfinite(support_soh)):
         raise ValueError("support SOH contains non-finite values")
 
@@ -54,6 +62,14 @@ def build_support_features(
             mean = float(voltage.mean())
             std = float(voltage.std(ddof=0))
             columns.append(np.zeros_like(voltage) if std < 1e-8 else (voltage - mean) / std)
+        elif name == "current_mean":
+            if not np.all(np.isfinite(current)):
+                raise ValueError(
+                    "current_mean was requested, but the support prefix contains missing current"
+                )
+            mean = float(current.mean())
+            std = float(current.std(ddof=0))
+            columns.append(np.zeros_like(current) if std < 1e-8 else (current - mean) / std)
         else:
             raise ValueError(f"unsupported model feature: {name}")
     return _readonly(np.column_stack(columns), np.float64)
@@ -76,6 +92,7 @@ class FullCellTrajectory:
     missing_count_before: int
     missing_count_after: int
     mean_voltage_v: np.ndarray | None = None
+    mean_current_a: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         voltage = (
@@ -83,9 +100,14 @@ class FullCellTrajectory:
             if self.mean_voltage_v is None
             else np.asarray(self.mean_voltage_v, dtype=np.float64)
         )
+        current = (
+            np.full(len(self.soh), np.nan, dtype=np.float64)
+            if self.mean_current_a is None
+            else np.asarray(self.mean_current_a, dtype=np.float64)
+        )
         sizes = {
             len(self.cycles), len(self.capacities_ah), len(self.soh),
-            len(self.is_interpolated), len(voltage),
+            len(self.is_interpolated), len(voltage), len(current),
         }
         if len(sizes) != 1 or not sizes or next(iter(sizes)) == 0:
             raise ValueError(f"{self.file_name}: trajectory arrays must have one equal, nonzero length")
@@ -94,6 +116,7 @@ class FullCellTrajectory:
         object.__setattr__(self, "soh", _readonly(self.soh, np.float64))
         object.__setattr__(self, "is_interpolated", _readonly(self.is_interpolated, np.bool_))
         object.__setattr__(self, "mean_voltage_v", _readonly(voltage, np.float64))
+        object.__setattr__(self, "mean_current_a", _readonly(current, np.float64))
 
     def source_task(
         self, history_length: int, feature_names: Sequence[str] = ("soh",)
@@ -113,6 +136,7 @@ class FullCellTrajectory:
                 self.soh[:history_length],
                 self.mean_voltage_v[:history_length],
                 feature_names,
+                self.mean_current_a[:history_length],
             ),
             feature_names=tuple(feature_names),
         )
@@ -133,6 +157,7 @@ class FullCellTrajectory:
                 self.soh[:history_length],
                 self.mean_voltage_v[:history_length],
                 feature_names,
+                self.mean_current_a[:history_length],
             ),
             feature_names=tuple(feature_names),
         )
@@ -257,6 +282,7 @@ class TargetEvaluationView:
                 full.soh[:history_length],
                 full.mean_voltage_v[:history_length],
                 feature_names,
+                full.mean_current_a[:history_length],
             ),
             feature_names=tuple(feature_names),
         )

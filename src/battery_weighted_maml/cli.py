@@ -198,9 +198,12 @@ def run_experiment(
         run_dir = Path(resume).resolve().parent.parent
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        feature_tag = "-".join(
+            feature.removesuffix("_mean") for feature in resolved.model.features
+        )
         run_dir = root / "outputs/runs" / (
             f"{timestamp}_{source_mode}_{Path(target_name).stem}_"
-            f"L{history_length}_seed{resolved.seed}"
+            f"L{history_length}_{feature_tag}_seed{resolved.seed}"
         )
     _make_run_tree(run_dir)
     logger = configure_logging(run_dir / "logs/train.log")
@@ -219,6 +222,7 @@ def run_experiment(
         "cycle": target_support.cycles,
         "soh": target_support.soh,
         "mean_voltage_V": target_full.mean_voltage_v[:history_length],
+        "mean_current_A": target_full.mean_current_a[:history_length],
     }
     for feature_index, feature_name in enumerate(target_support.feature_names):
         column_name = "input_soh" if feature_name == "soh" else f"input_{feature_name}_z"
