@@ -1,5 +1,13 @@
 # Direct Target-aware Weighted MAML for Battery SOH Forecasting
 
+논문식 unweighted full second-order MAML 재현 코드는 기존 실험과 분리된
+[`paper_reproduction/`](paper_reproduction/) 패키지에 있습니다. 기본 L=500
+전체 학습과 CX2_37/CX2_38 meta-test는 다음 명령으로 실행합니다.
+
+```bash
+python -m paper_reproduction.main --mode all --config paper_reproduction/config.yaml
+```
+
 CALCE 배터리의 초기 SOH 구간만으로 target-aware source weight를 계산하고, full MAML로 target별 초기화를 학습한 뒤 target support에 적응하여 미래 SOH·EOL·RUL을 예측하는 로컬 PyTorch 프로젝트입니다. Target의 미래 trajectory와 EOL label은 meta-training, 가중치 계산, fine-tuning, early stopping, checkpoint 선택에 사용되지 않습니다.
 
 ## 1. 설치
@@ -118,6 +126,25 @@ python scripts/run_single.py --target CALCE_CX2_37.pkl --history-length 100 --so
 ```
 
 이 설정은 encoder 입력 차원이 2이므로 기존 SOH-only checkpoint에서 resume할 수 없습니다. 새 run으로 시작해야 합니다.
+
+Weighted meta-learning 없이 SOH 하나만 입력하는 plain GRU encoder-decoder L=500 baseline:
+
+```bash
+python scripts/run_gru_baseline.py \
+  --target CALCE_CX2_37.pkl \
+  --config configs/gru_baseline_l500.yaml
+```
+
+이 baseline은 source cell, MMD, QP alpha, MAML inner/outer loop를 사용하지 않습니다. Target의 최초 500 cycle 중 앞 450개로 sliding-window 학습하고 뒤 50개 support cycle의 recursive MSE로 early stopping checkpoint를 고릅니다. 최종 예측에서는 선택된 모델의 encoder에 관측된 500개 SOH 전체를 넣습니다. 기본값은 최대 300 epoch, patience 30입니다.
+
+중단된 baseline은 다음처럼 마지막으로 저장된 epoch에서 재개합니다.
+
+```bash
+python scripts/run_gru_baseline.py \
+  --target CALCE_CX2_37.pkl \
+  --config configs/gru_baseline_l500.yaml \
+  --resume outputs/runs/RUN_NAME/checkpoints/last.pt
+```
 
 빠른 end-to-end 검증(meta iteration 2, full adaptation 2 step, horizon 10):
 
