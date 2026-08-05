@@ -201,9 +201,13 @@ def run_experiment(
         feature_tag = "-".join(
             feature.removesuffix("_mean") for feature in resolved.model.features
         )
+        objective_tag = ""
+        if resolved.maml.robust_path_steps is not None:
+            step_tag = "-".join(str(step) for step in resolved.maml.robust_path_steps)
+            objective_tag = f"_pathrobust-s{step_tag}"
         run_dir = root / "outputs/runs" / (
             f"{timestamp}_{source_mode}_{Path(target_name).stem}_"
-            f"L{history_length}_{feature_tag}_seed{resolved.seed}"
+            f"L{history_length}_{feature_tag}{objective_tag}_seed{resolved.seed}"
         )
     _make_run_tree(run_dir)
     logger = configure_logging(run_dir / "logs/train.log")

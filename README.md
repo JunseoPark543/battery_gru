@@ -133,6 +133,18 @@ SOH, cycle 평균 전압, cycle 평균 전류를 입력하는 L=100, 2,300 itera
 python scripts/run_single.py --target CALCE_CX2_37.pkl --history-length 100 --source-mode same_family --config configs/l100_soh_voltage_current_2300.yaml
 ```
 
+SOH, cycle 평균 전압, cycle 평균 전류 입력과 source adaptation path
+`[1, 3, 5, 10]`의 robust query objective를 사용하는 L=100 실험:
+
+```bash
+python scripts/run_single.py --target CALCE_CX2_37.pkl --history-length 100 --source-mode same_family --config configs/l100_soh_voltage_current_path_robust_2300.yaml
+```
+
+Path-robust task loss는 한 번의 연속 inner-loop에서 각 지정 step의 source
+query loss를 측정하고
+`0.75 * mean + 0.25 * worst + 0.25 * population_std`로 결합합니다.
+Target future는 이 meta objective에 사용하지 않습니다.
+
 이 설정은 encoder 입력 차원이 2이므로 기존 SOH-only checkpoint에서 resume할 수 없습니다. 새 run으로 시작해야 합니다.
 
 Weighted meta-learning 없이 SOH 하나만 입력하는 plain GRU encoder-decoder L=500 baseline:

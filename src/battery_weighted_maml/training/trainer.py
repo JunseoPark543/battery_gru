@@ -95,6 +95,37 @@ class WeightedMAMLTrainer:
             logger=self.logger,
         )
 
+    def _validate_resume_objective(self, payload: dict[str, object]) -> None:
+        """Prevent silently changing the meta objective inside one run."""
+        saved_config = payload.get("config")
+        if not isinstance(saved_config, dict):
+            raise ValueError("resume checkpoint has no valid resolved config")
+        saved_maml = saved_config.get("maml")
+        if not isinstance(saved_maml, dict):
+            raise ValueError("resume checkpoint has no valid MAML config")
+        current = self.config.maml
+        expected = {
+            "inner_steps": current.inner_steps,
+            "robust_path_steps": current.robust_path_steps,
+            "robust_path_worst_weight": current.robust_path_worst_weight,
+            "robust_path_dispersion_weight": current.robust_path_dispersion_weight,
+        }
+        actual = {
+            "inner_steps": saved_maml.get("inner_steps"),
+            "robust_path_steps": saved_maml.get("robust_path_steps"),
+            "robust_path_worst_weight": saved_maml.get(
+                "robust_path_worst_weight", 0.0
+            ),
+            "robust_path_dispersion_weight": saved_maml.get(
+                "robust_path_dispersion_weight", 0.0
+            ),
+        }
+        if actual != expected:
+            raise ValueError(
+                "resume checkpoint robust adaptation objective differs from config: "
+                f"checkpoint={actual}, requested={expected}"
+            )
+
     def _payload(
         self, iteration: int, best_metric: float, ema_metric: float, alpha: torch.Tensor
     ) -> dict[str, object]:
@@ -136,6 +167,7 @@ class WeightedMAMLTrainer:
                 raise ValueError("resume checkpoint source mode does not match")
             if list(payload["source_file_names"]) != [task.file_name for task in self.source_tasks]:
                 raise ValueError("resume checkpoint source list does not match")
+            self._validate_resume_objective(payload)
             start_iteration = int(payload["meta_iteration"]) + 1
             best_metric = float(payload["best_metric"])
             ema = float(payload.get("ema_metric", best_metric))
@@ -171,9 +203,29 @@ class WeightedMAMLTrainer:
                         device=self.device,
                         generator=task_generator,
                         full_maml=self.config.maml.full_maml,
+                        robust_path_steps=self.config.maml.robust_path_steps,
+                        robust_path_worst_weight=(
+                            self.config.maml.robust_path_worst_weight
+                        ),
+                        robust_path_dispersion_weight=(
+                            self.config.maml.robust_path_dispersion_weight
+                        ),
                     )
                 )
             meta_loss = weighted_meta_loss(task_losses, latest.alpha)
+            alpha_on_device = latest.alpha.to(self.device)
+            weighted_path_mean = torch.sum(
+                alpha_on_device
+                * torch.stack([item.path_mean_loss for item in task_losses])
+            )
+            weighted_path_dispersion = torch.sum(
+                alpha_on_device
+                * torch.stack([item.path_dispersion for item in task_losses])
+            )
+            weighted_path_worst = torch.sum(
+                alpha_on_device
+                * torch.stack([item.path_worst_loss for item in task_losses])
+            )
             self.optimizer.zero_grad(set_to_none=True)
             meta_loss.backward()
             grad_norm_tensor = torch.nn.utils.clip_grad_norm_(
@@ -207,6 +259,15 @@ class WeightedMAMLTrainer:
                 "iteration": iteration,
                 "weighted_meta_loss": value,
                 "ema_source_meta_loss": ema,
+                "weighted_path_mean_query_loss": float(
+                    weighted_path_mean.detach().cpu()
+                ),
+                "weighted_path_dispersion": float(
+                    weighted_path_dispersion.detach().cpu()
+                ),
+                "weighted_path_worst_query_loss": float(
+                    weighted_path_worst.detach().cpu()
+                ),
                 "alpha_entropy": entropy,
                 "effective_sources": effective,
                 "mmd_objective": latest.objective,
@@ -223,15 +284,27 @@ class WeightedMAMLTrainer:
             self.history.iterations.append(record)
             self.history.gradients.append({"iteration": iteration, "gradient_norm": grad_norm})
             for task_loss, alpha in zip(task_losses, alpha_cpu):
-                self.history.source_losses.append(
-                    {
-                        "iteration": iteration,
-                        "source": task_loss.task_name,
-                        "support_loss": float(task_loss.support_loss.detach().cpu()),
-                        "query_loss": float(task_loss.query_loss.detach().cpu()),
-                        "alpha": float(alpha),
-                    }
-                )
+                source_record = {
+                    "iteration": iteration,
+                    "source": task_loss.task_name,
+                    "support_loss": float(task_loss.support_loss.detach().cpu()),
+                    "query_loss": float(task_loss.query_loss.detach().cpu()),
+                    "path_mean_query_loss": float(
+                        task_loss.path_mean_loss.detach().cpu()
+                    ),
+                    "path_dispersion": float(
+                        task_loss.path_dispersion.detach().cpu()
+                    ),
+                    "path_worst_query_loss": float(
+                        task_loss.path_worst_loss.detach().cpu()
+                    ),
+                    "alpha": float(alpha),
+                }
+                for step, step_loss in task_loss.query_losses_by_step.items():
+                    source_record[f"query_loss_step_{step}"] = float(
+                        step_loss.detach().cpu()
+                    )
+                self.history.source_losses.append(source_record)
             if iteration % self.config.logging.save_alpha_interval == 0 or iteration == total:
                 for task, alpha in zip(self.source_tasks, alpha_cpu):
                     self.history.alphas.append(
@@ -256,12 +329,19 @@ class WeightedMAMLTrainer:
                 query_log = {
                     item.task_name: float(item.query_loss.detach().cpu()) for item in task_losses
                 }
+                path_log = {
+                    item.task_name: {
+                        step: float(step_loss.detach().cpu())
+                        for step, step_loss in item.query_losses_by_step.items()
+                    }
+                    for item in task_losses
+                }
                 top = int(np.argmax(alpha_cpu))
                 self.logger.info(
-                    "iter=%d/%d loss=%.7g ema=%.7g support=%s query=%s alpha=%s "
+                    "iter=%d/%d loss=%.7g ema=%.7g support=%s query=%s path=%s alpha=%s "
                     "top=%s:%.5f entropy=%.5f effective=%.3f mmd=%.7g sigma=%.7g "
                     "solver=%s grad=%.5g lr=%.5g elapsed=%.1fs eta=%.1fs",
-                    iteration, total, value, ema, support_log, query_log,
+                    iteration, total, value, ema, support_log, query_log, path_log,
                     np.array2string(alpha_cpu, precision=5),
                     self.source_tasks[top].file_name, alpha_cpu[top], entropy, effective,
                     latest.objective, latest.sigma, latest.solver_status, grad_norm,

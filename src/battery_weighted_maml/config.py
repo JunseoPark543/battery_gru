@@ -35,6 +35,11 @@ class ModelConfig:
 class MAMLConfig:
     full_maml: bool = True
     inner_steps: int = 1
+    # When set, source query losses are measured along one continuous inner-loop
+    # trajectory at these steps and combined into a path-robust objective.
+    robust_path_steps: list[int] | None = None
+    robust_path_worst_weight: float = 0.0
+    robust_path_dispersion_weight: float = 0.0
     inner_lr: float = 0.05
     inner_batch_size: int = 64
     outer_lr: float = 0.001
@@ -125,6 +130,34 @@ class ExperimentConfig:
             raise ValueError("teacher_forcing_ratio must be in [0, 1]")
         if self.maml.inner_steps <= 0 or self.maml.inner_batch_size <= 0:
             raise ValueError("MAML inner settings must be positive")
+        path_steps = self.maml.robust_path_steps
+        if path_steps is not None:
+            if (
+                not isinstance(path_steps, list)
+                or not path_steps
+                or not all(isinstance(step, int) for step in path_steps)
+                or any(step <= 0 for step in path_steps)
+                or path_steps != sorted(set(path_steps))
+            ):
+                raise ValueError(
+                    "maml.robust_path_steps must be null or a unique, increasing, "
+                    "positive integer list"
+                )
+            if self.maml.inner_steps not in path_steps:
+                raise ValueError(
+                    "maml.inner_steps must be included in maml.robust_path_steps"
+                )
+        if not 0.0 <= self.maml.robust_path_worst_weight <= 1.0:
+            raise ValueError("maml.robust_path_worst_weight must be in [0, 1]")
+        if self.maml.robust_path_dispersion_weight < 0.0:
+            raise ValueError("maml.robust_path_dispersion_weight cannot be negative")
+        if path_steps is None and (
+            self.maml.robust_path_worst_weight != 0.0
+            or self.maml.robust_path_dispersion_weight != 0.0
+        ):
+            raise ValueError(
+                "robust path weights require maml.robust_path_steps"
+            )
         if self.maml.inner_lr <= 0 or self.maml.outer_lr <= 0:
             raise ValueError("MAML learning rates must be positive")
         if self.maml.meta_iterations <= 0 or self.maml.gradient_clip_norm <= 0:

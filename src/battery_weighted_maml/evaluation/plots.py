@@ -92,6 +92,47 @@ def plot_training_outputs(run_dir: str | Path) -> None:
     axis.set(xlabel="Meta iteration", ylabel="Query MSE", title="Adapted source query losses")
     axis.grid(alpha=0.25); axis.legend(fontsize=7); fig.tight_layout()
     fig.savefig(figures / "source_query_losses.png", dpi=150); plt.close(fig)
+    path_columns = sorted(
+        (column for column in losses.columns if column.startswith("query_loss_step_")),
+        key=lambda column: int(column.rsplit("_", 1)[-1]),
+    )
+    if len(path_columns) > 1:
+        fig, axis = plt.subplots(figsize=(9, 5))
+        for column in path_columns:
+            weighted = (
+                losses.assign(weighted=losses[column] * losses["alpha"])
+                .groupby("iteration", as_index=False)["weighted"]
+                .sum()
+            )
+            step = column.rsplit("_", 1)[-1]
+            axis.plot(weighted["iteration"], weighted["weighted"], label=f"step {step}")
+        axis.set(
+            xlabel="Meta iteration",
+            ylabel="Alpha-weighted query MSE",
+            title="Query loss along the source adaptation path",
+        )
+        axis.grid(alpha=0.25); axis.legend(); fig.tight_layout()
+        fig.savefig(figures / "path_query_losses.png", dpi=150); plt.close(fig)
+    component_columns = [
+        "weighted_path_mean_query_loss",
+        "weighted_path_worst_query_loss",
+        "weighted_path_dispersion",
+    ]
+    if all(column in iterations.columns for column in component_columns):
+        fig, axis = plt.subplots(figsize=(9, 5))
+        for column in component_columns:
+            axis.plot(
+                iterations["iteration"],
+                iterations[column],
+                label=column.removeprefix("weighted_path_").replace("_", " "),
+            )
+        axis.set(
+            xlabel="Meta iteration",
+            ylabel="Loss",
+            title="Robust adaptation path components",
+        )
+        axis.grid(alpha=0.25); axis.legend(); fig.tight_layout()
+        fig.savefig(figures / "path_loss_components.png", dpi=150); plt.close(fig)
     if not alphas.empty:
         pivot = alphas.pivot(index="source", columns="iteration", values="alpha")
         fig, axis = plt.subplots(figsize=(10, max(3, 0.45 * len(pivot))))
