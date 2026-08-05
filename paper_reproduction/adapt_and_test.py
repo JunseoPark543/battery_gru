@@ -79,8 +79,8 @@ def adapt_model(
     support_generator = torch.Generator(device="cpu").manual_seed(
         config.seed + seed_offset
     )
-    teacher_device = "cuda" if device.type == "cuda" else "cpu"
-    teacher_generator = torch.Generator(device=teacher_device).manual_seed(
+    generator_device = device if device.type == "cuda" else torch.device("cpu")
+    teacher_generator = torch.Generator(device=generator_device).manual_seed(
         config.seed + seed_offset + 1
     )
     validation_batch = _fixed_validation_batch(
@@ -164,19 +164,31 @@ def _evaluate_one(
     config: ExperimentConfig,
     output_dir: Path,
 ) -> dict[str, object]:
-    support, _ = task.split(history_length)
+    support, query = task.split(history_length)
     current_cycle = int(task.cycles[history_length - 1])
-    horizon = config.evaluation.max_forecast_cycle - current_cycle
+    if config.evaluation.forecast_mode == "paper":
+        # Paper evaluation predicts exactly the held-out query, which also
+        # remains correct if cycle labels are not contiguous.
+        horizon = len(query)
+        forecast_cycles = task.cycles[history_length:].copy()
+    else:
+        # Deployment mode intentionally supports extrapolation beyond known data.
+        horizon = (
+            config.evaluation.max_prediction_length
+            if config.evaluation.max_prediction_length is not None
+            else config.evaluation.max_forecast_cycle - current_cycle
+        )
+        forecast_cycles = np.arange(
+            current_cycle + 1, current_cycle + 1 + horizon, dtype=np.int64
+        )
     if horizon <= 0:
-        raise ValueError("max_forecast_cycle must be after the current cycle")
+        raise ValueError("prediction length must be positive")
     forecast_tensor = model.recursive_forecast(support, horizon)
     forecast = forecast_tensor[0, :, 0].detach().cpu().numpy().astype(float)
     if not np.all(np.isfinite(forecast)):
         first_bad = int(np.flatnonzero(~np.isfinite(forecast))[0])
         forecast = forecast[:first_bad]
-    forecast_cycles = np.arange(
-        current_cycle + 1, current_cycle + 1 + len(forecast), dtype=np.int64
-    )
+    forecast_cycles = forecast_cycles[:len(forecast)]
     metrics = evaluate_prediction(
         task.cycles,
         task.soh,
@@ -234,7 +246,14 @@ def _evaluate_one(
     )
     axis.axhline(config.evaluation.eol_threshold, color="tab:red", linestyle="--", label="EOL")
     axis.axvline(current_cycle, color="gray", linestyle=":", label=f"L={history_length}")
-    axis.set(xlabel="Cycle", ylabel="SOH", title=f"{task.name} {mode}")
+    axis.set(
+        xlabel="Cycle",
+        ylabel="SOH",
+        title=(
+            f"{task.name} {mode} | "
+            f"MAE={metrics['mae_percent']:.3f}% RMSE={metrics['rmse_percent']:.3f}%"
+        ),
+    )
     axis.grid(alpha=0.25)
     axis.legend()
     fig.tight_layout()

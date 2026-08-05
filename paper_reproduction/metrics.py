@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -22,36 +23,37 @@ def soh_metrics(actual: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
     rmse = float(np.sqrt(np.mean(error ** 2)))
     denominator = float(np.sum((y - y.mean()) ** 2))
     r2 = float("nan") if denominator == 0.0 else float(1.0 - np.sum(error ** 2) / denominator)
-    return {"mae": mae, "rmse": rmse, "r2": r2, "point_count": int(len(y))}
+    return {
+        # Backward-compatible raw SOH-fraction keys.
+        "mae": mae,
+        "rmse": rmse,
+        # Paper tables report percentage points, e.g. 0.01156 -> 1.156%.
+        "mae_percent": 100.0 * mae,
+        "rmse_percent": 100.0 * rmse,
+        "r2": r2,
+        "point_count": int(len(y)),
+    }
 
 
 def last_hitting_eol(
-    cycles: np.ndarray,
-    soh: np.ndarray,
+    cycles: np.ndarray | Sequence[int],
+    soh: np.ndarray | Sequence[float],
     threshold: float,
 ) -> int | None:
-    """Return the cycle after the final SOH>threshold observation.
-
-    A crossing is confirmed only when a later available point exists. This
-    prevents declaring EOL at ``max_forecast_cycle + 1`` when every forecast
-    remains above the threshold.
-    """
-    cycles = np.asarray(cycles, dtype=np.int64).reshape(-1)
+    """Return the final cycle whose finite SOH is strictly above threshold."""
+    cycles = np.asarray(cycles).reshape(-1)
     soh = np.asarray(soh, dtype=float).reshape(-1)
-    if cycles.shape != soh.shape or len(cycles) == 0:
-        raise ValueError("cycles and SOH must be nonempty aligned arrays")
+    if cycles.size == 0 or soh.size == 0:
+        raise ValueError("cycles and SOH must be nonempty")
+    if cycles.shape != soh.shape:
+        raise ValueError("cycles and SOH must have equal lengths")
     valid = np.isfinite(soh)
     cycles = cycles[valid]
     soh = soh[valid]
-    if len(cycles) == 0:
-        return None
     above = np.flatnonzero(soh > threshold)
     if above.size == 0:
-        return int(cycles[0])
-    last_above = int(above[-1])
-    if last_above == len(cycles) - 1:
         return None
-    return int(cycles[last_above + 1])
+    return int(cycles[above[-1]])
 
 
 def evaluate_prediction(

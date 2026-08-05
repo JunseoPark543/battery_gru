@@ -56,4 +56,7 @@ adaptation:
 
 evaluation:
   eol_threshold: 0.70
+  forecast_mode: paper
+  max_prediction_length: null
+  # Backward-compatible deployment boundary; ignored in paper mode.
   max_forecast_cycle: 2000

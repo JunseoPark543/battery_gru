@@ -93,10 +93,16 @@ def _write_manifest(path: Path, payload: dict[str, Any]) -> None:
 def run(args: argparse.Namespace) -> Path:
     root = Path.cwd().resolve()
     config = load_config(args.config)
+    if args.device is not None:
+        config.device = args.device
     if args.history_length is not None:
         config.data.history_length = args.history_length
     if args.max_epochs is not None:
         config.maml.max_epochs = args.max_epochs
+    if args.forecast_mode is not None:
+        config.evaluation.forecast_mode = args.forecast_mode
+    if args.max_prediction_length is not None:
+        config.evaluation.max_prediction_length = args.max_prediction_length
     config.validate()
     seed_everything(config.seed)
     device = resolve_device(config.device)
@@ -201,13 +207,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--config", default="paper_reproduction/config.yaml")
     parser.add_argument("--mode", choices=["train", "test", "all", "optuna"], default="all")
+    parser.add_argument("--device", help="auto, cpu, cuda, cuda:0, cuda:1, ...")
     parser.add_argument("--checkpoint", help="best_meta_model.pt for test-only mode")
     parser.add_argument("--resume", help="last.pt for resumable train/all mode")
     parser.add_argument("--history-length", type=int, choices=[100, 200, 300, 400, 500])
     parser.add_argument("--max-epochs", type=int)
+    parser.add_argument("--forecast-mode", choices=["paper", "deployment"])
+    parser.add_argument("--max-prediction-length", type=int)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     run(parse_args())
-

@@ -90,6 +90,8 @@ def _payload(
         "config": config.to_dict(),
         "train_cells": list(config.data.train_cells),
         "history_length": config.data.history_length,
+        "random_seed": config.seed,
+        "checkpoint_selection_metric": "deterministic_post_update_meta_query_loss",
         "algorithm": "full_second_order_maml",
         "track_higher_grads": True,
         "rng_states": _capture_rng_state(),
@@ -109,7 +111,8 @@ def load_meta_checkpoint(
     payload = torch.load(source, map_location=device, weights_only=False)
     required = {
         "model_state_dict", "epoch", "best_epoch", "best_meta_loss", "config",
-        "train_cells", "history_length", "algorithm", "track_higher_grads", "rng_states",
+        "train_cells", "history_length", "random_seed", "checkpoint_selection_metric",
+        "algorithm", "track_higher_grads", "rng_states",
     }
     if optimizer is not None:
         required.add("optimizer_state_dict")
@@ -118,6 +121,8 @@ def load_meta_checkpoint(
         raise ValueError(f"meta checkpoint missing keys: {sorted(missing)}")
     if payload["algorithm"] != "full_second_order_maml" or not payload["track_higher_grads"]:
         raise ValueError("checkpoint is not a full second-order MAML checkpoint")
+    if payload["checkpoint_selection_metric"] != "deterministic_post_update_meta_query_loss":
+        raise ValueError("checkpoint uses an incompatible model-selection metric")
     model.load_state_dict(payload["model_state_dict"])
     if optimizer is not None:
         optimizer.load_state_dict(payload["optimizer_state_dict"])
@@ -128,6 +133,11 @@ def load_meta_checkpoint(
 
 def _move_batch(batch: dict[str, torch.Tensor], device: torch.device) -> dict[str, torch.Tensor]:
     return {key: value.to(device) for key, value in batch.items()}
+
+
+def _generator_device(device: torch.device) -> torch.device:
+    """Preserve the selected CUDA index (cuda:0, cuda:1, ...) for RNG."""
+    return device if device.type == "cuda" else torch.device("cpu")
 
 
 def _model_loss(
@@ -171,8 +181,7 @@ def _task_post_adaptation_loss(
     support_generator = torch.Generator(device="cpu").manual_seed(
         config.seed + epoch * 10007 + task_index * 101
     )
-    teacher_device = "cuda" if device.type == "cuda" else "cpu"
-    teacher_generator = torch.Generator(device=teacher_device).manual_seed(
+    teacher_generator = torch.Generator(device=_generator_device(device)).manual_seed(
         config.seed + epoch * 20011 + task_index * 211
     )
     support_losses: list[torch.Tensor] = []
@@ -180,7 +189,10 @@ def _task_post_adaptation_loss(
     with higher.innerloop_ctx(
         meta_model,
         inner_optimizer,
+        # False keeps the initial fast weights connected to the meta-model;
+        # True here would copy/detach them from the desired outer gradient path.
         copy_initial_weights=False,
+        # Required for Hessian/second-order terms through diffopt.step().
         track_higher_grads=True,
     ) as (task_model, differentiable_optimizer):
         task_model.train()
@@ -218,6 +230,73 @@ def _task_post_adaptation_loss(
                 raise FloatingPointError(f"{task.name}: non-finite query loss")
             query_losses.append(query_loss)
     return torch.stack(support_losses).mean(), torch.stack(query_losses).mean()
+
+
+def evaluate_meta_objective_deterministic(
+    meta_model: GRUEncoderDecoder,
+    train_tasks: Sequence[CellTask],
+    config: ExperimentConfig,
+    device: torch.device,
+    loss_function: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor],
+) -> float:
+    """Evaluate the current post-update parameters with deterministic adaptation.
+
+    Each task uses a fixed support sample and fixed teacher-forcing RNG for its
+    inner update. Query decoding is fully recursive in eval mode. This metric is
+    calculated *after* the outer optimizer step, so its recorded loss and saved
+    model state refer to exactly the same meta-parameters.
+    """
+    task_losses: list[float] = []
+    for task_index, task in enumerate(train_tasks):
+        support, query = task.split(config.data.history_length)
+        support_dataset = RecursivePairDataset(support)
+        adapted = copy.deepcopy(meta_model).to(device)
+        optimizer = torch.optim.SGD(
+            adapted.parameters(), lr=config.maml.inner_learning_rate
+        )
+        support_generator = torch.Generator(device="cpu").manual_seed(
+            config.seed + 70001 + task_index * 101
+        )
+        teacher_generator = torch.Generator(
+            device=_generator_device(device)
+        ).manual_seed(config.seed + 90001 + task_index * 211)
+        adapted.train()
+        for _ in range(config.maml.inner_steps):
+            support_batch = sample_support_batch(
+                support_dataset,
+                config.maml.inner_batch_size,
+                support_generator,
+                device,
+            )
+            support_loss = _model_loss(
+                adapted,
+                support_batch,
+                loss_function,
+                config.model.predicted_input_probability,
+                teacher_generator,
+            )
+            optimizer.zero_grad(set_to_none=True)
+            support_loss.backward()
+            optimizer.step()
+        adapted.eval()
+        query_batch = _move_batch(
+            variable_length_collate([QuerySequenceDataset(support, query)[0]]),
+            device,
+        )
+        with torch.no_grad():
+            query_loss = _model_loss(
+                adapted,
+                query_batch,
+                loss_function,
+                predicted_input_probability=1.0,
+                generator=None,
+            )
+        if not torch.isfinite(query_loss):
+            raise FloatingPointError(
+                f"{task.name}: non-finite deterministic selection loss"
+            )
+        task_losses.append(float(query_loss.cpu()))
+    return float(np.mean(task_losses))
 
 
 def train_meta_model(
@@ -286,6 +365,7 @@ def train_meta_model(
             if device.type == "cuda"
             else nullcontext()
         )
+        optimizer.zero_grad(set_to_none=True)
         with rnn_backend:
             for task_index, task in enumerate(train_tasks):
                 support_loss, query_loss = _task_post_adaptation_loss(
@@ -295,7 +375,6 @@ def train_meta_model(
                 task_query_losses.append(query_loss)
             # Unweighted arithmetic mean: every one of the five tasks contributes 1/5.
             meta_loss = torch.stack(task_query_losses).mean()
-            optimizer.zero_grad(set_to_none=True)
             meta_loss.backward()
         grad_norm_tensor = torch.nn.utils.clip_grad_norm_(
             model.parameters(), config.maml.gradient_clip_norm
@@ -304,10 +383,16 @@ def train_meta_model(
         if not math.isfinite(grad_norm):
             raise FloatingPointError(f"non-finite outer gradient at epoch {epoch}")
         optimizer.step()
-        value = float(meta_loss.detach().cpu())
-        improved = value < best_meta_loss - config.maml.early_stopping_min_delta
+        training_value = float(meta_loss.detach().cpu())
+        # Selection happens after optimizer.step on the exact state that may be saved.
+        selection_value = evaluate_meta_objective_deterministic(
+            model, train_tasks, config, device, loss_function
+        )
+        improved = (
+            selection_value < best_meta_loss - config.maml.early_stopping_min_delta
+        )
         if improved:
-            best_meta_loss = value
+            best_meta_loss = selection_value
             best_epoch = epoch
             stale_epochs = 0
         else:
@@ -315,7 +400,9 @@ def train_meta_model(
         elapsed = time.perf_counter() - began
         record: dict[str, Any] = {
             "epoch": epoch,
-            "meta_loss": value,
+            "meta_loss": training_value,
+            "checkpoint_selection_meta_loss": selection_value,
+            "checkpoint_selection_metric": "deterministic_post_update_meta_query_loss",
             "mean_support_loss": float(torch.stack(task_support_losses).mean().detach().cpu()),
             "gradient_norm": grad_norm,
             "elapsed_seconds": elapsed,
@@ -337,12 +424,18 @@ def train_meta_model(
         if epoch % config.maml.checkpoint_interval == 0 or epoch == config.maml.max_epochs:
             _atomic_save(checkpoint, root / "checkpoints/last.pt")
             pd.DataFrame(records).to_csv(history_path, index=False)
-        progress.set_postfix(meta_loss=f"{value:.6g}", best=f"{best_meta_loss:.6g}")
+        progress.set_postfix(
+            train=f"{training_value:.6g}",
+            selection=f"{selection_value:.6g}",
+            best=f"{best_meta_loss:.6g}",
+        )
         if epoch % config.maml.log_interval == 0 or epoch in {start_epoch, config.maml.max_epochs}:
             logger.info(
-                "epoch=%d/%d meta_loss=%.8g best=%.8g@%d support=%s query=%s "
+                "epoch=%d/%d train_meta_loss=%.8g selection_meta_loss=%.8g "
+                "best=%.8g@%d support=%s query=%s "
                 "grad=%.6g stale=%d elapsed=%.1fs",
-                epoch, config.maml.max_epochs, value, best_meta_loss, best_epoch,
+                epoch, config.maml.max_epochs, training_value, selection_value,
+                best_meta_loss, best_epoch,
                 {task.name: float(loss.detach().cpu()) for task, loss in zip(train_tasks, task_support_losses)},
                 {task.name: float(loss.detach().cpu()) for task, loss in zip(train_tasks, task_query_losses)},
                 grad_norm, stale_epochs, elapsed,

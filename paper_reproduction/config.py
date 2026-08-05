@@ -80,7 +80,10 @@ class AdaptationConfig:
 @dataclass
 class EvaluationConfig:
     eol_threshold: float = 0.70  # paper
-    max_forecast_cycle: int = 2000  # implementation choice
+    forecast_mode: str = "paper"  # paper or deployment
+    max_prediction_length: int | None = None  # deployment implementation choice
+    # Legacy deployment boundary retained for old configs. Paper mode ignores it.
+    max_forecast_cycle: int = 2000
 
 
 @dataclass
@@ -142,8 +145,19 @@ class ExperimentConfig:
             raise ValueError("fast_steps cannot contain negative values")
         if not 0.0 < self.evaluation.eol_threshold < 1.0:
             raise ValueError("eol_threshold must be between 0 and 1")
-        if self.evaluation.max_forecast_cycle <= self.data.history_length:
-            raise ValueError("max_forecast_cycle must exceed history_length")
+        if self.evaluation.forecast_mode not in {"paper", "deployment"}:
+            raise ValueError("evaluation.forecast_mode must be paper or deployment")
+        if (
+            self.evaluation.max_prediction_length is not None
+            and self.evaluation.max_prediction_length <= 0
+        ):
+            raise ValueError("max_prediction_length must be positive when provided")
+        if (
+            self.evaluation.forecast_mode == "deployment"
+            and self.evaluation.max_prediction_length is None
+            and self.evaluation.max_forecast_cycle <= self.data.history_length
+        ):
+            raise ValueError("legacy deployment max_forecast_cycle must exceed history_length")
         if self.maml.optuna_trials < 0:
             raise ValueError("optuna_trials cannot be negative")
         if not 0 < self.maml.optuna_lr_low < self.maml.optuna_lr_high:
@@ -189,4 +203,3 @@ def save_config(config: ExperimentConfig, path: str | Path) -> None:
         yaml.safe_dump(config.to_dict(), sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
-
