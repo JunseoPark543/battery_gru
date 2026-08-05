@@ -34,13 +34,7 @@ weights:
   recompute_every_iteration: true
   detach_alpha: true
 adaptation:
-  fast_steps:
-  - 1
-  - 3
-  - 5
-  - 10
-  - 15
-  - 20
+  fast_steps: 1
   full_max_steps: 200
   full_patience: 20
   learning_rate: 0.05

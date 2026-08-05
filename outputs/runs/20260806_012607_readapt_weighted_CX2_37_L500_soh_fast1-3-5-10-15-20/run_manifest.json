@@ -1,0 +1,96 @@
+{
+  "started_at_utc": "2026-08-05T16:26:16.682222+00:00",
+  "python_version": "3.12.3",
+  "pytorch_version": "2.13.0+cu130",
+  "cuda_version": "13.0",
+  "gpu_name": "NVIDIA GeForce RTX 5080",
+  "os": "Linux-7.0.0-28-generic-x86_64-with-glibc2.39",
+  "package_versions": {
+    "torch": "2.13.0",
+    "numpy": "2.5.1",
+    "pandas": "3.0.5",
+    "scipy": "1.18.0",
+    "scikit-learn": "1.9.0",
+    "matplotlib": "3.11.1",
+    "PyYAML": "6.0.3",
+    "tqdm": "4.70.0",
+    "cvxpy": "1.9.2",
+    "osqp": "1.1.3",
+    "scs": "3.2.11",
+    "higher": "0.2.1"
+  },
+  "seed": 42,
+  "command": "scripts/run_single.py --resume outputs/runs/20260806_012607_readapt_weighted_CX2_37_L500_soh_fast1-3-5-10-15-20/checkpoints/last.pt --config configs/l500_2300.yaml",
+  "git_commit": "200b14e47176701c67484471d6e6a2d9a8858aef",
+  "target": "CALCE_CX2_37.pkl",
+  "sources": [
+    "CALCE_CX2_16.pkl",
+    "CALCE_CX2_33.pkl",
+    "CALCE_CX2_34.pkl",
+    "CALCE_CX2_35.pkl",
+    "CALCE_CX2_36.pkl",
+    "CALCE_CX2_38.pkl"
+  ],
+  "history_length": 100,
+  "source_mode": "same_family",
+  "resolved_config": {
+    "seed": 42,
+    "device": "auto",
+    "data": {
+      "calce_dir": "data/CALCE",
+      "label_path": "data/Life labels/CALCE_labels.json",
+      "eol_threshold": 0.8,
+      "history_lengths": [
+        500
+      ],
+      "max_forecast_cycle": 1000
+    },
+    "model": {
+      "input_size": 1,
+      "features": [
+        "soh"
+      ],
+      "voltage_normalization": "support_zscore",
+      "hidden_size": 64,
+      "num_layers": 1,
+      "dropout": 0.0,
+      "teacher_forcing_ratio": 0.5
+    },
+    "maml": {
+      "full_maml": true,
+      "inner_steps": 1,
+      "inner_lr": 0.05,
+      "inner_batch_size": 64,
+      "outer_lr": 0.001,
+      "meta_iterations": 2300,
+      "gradient_clip_norm": 5.0
+    },
+    "weights": {
+      "method": "mmd_qp",
+      "kernel": "rbf",
+      "sigma": "median",
+      "qp_solver_primary": "OSQP",
+      "qp_solver_fallback": "SCS",
+      "diagonal_jitter": 1e-08,
+      "recompute_every_iteration": true,
+      "detach_alpha": true
+    },
+    "adaptation": {
+      "fast_steps": 1,
+      "full_max_steps": 200,
+      "full_patience": 20,
+      "learning_rate": 0.05
+    },
+    "logging": {
+      "log_interval": 10,
+      "checkpoint_interval": 100,
+      "save_alpha_interval": 10
+    },
+    "evaluation": {
+      "primary_adaptation": "full",
+      "save_per_cycle_predictions": true
+    },
+    "source_mode": "same_family"
+  },
+  "status": "running"
+}
