@@ -155,9 +155,12 @@ def run_experiment(
     project_root: str | Path = ".",
     smoke_test: bool = False,
     resume: str | Path | None = None,
+    adapt_only: bool = False,
     trajectories: dict[str, FullCellTrajectory] | None = None,
 ) -> Path:
     """Run one target-specific meta-training, adaptation, and final evaluation."""
+    if adapt_only and resume is None:
+        raise ValueError("adapt_only requires a checkpoint through resume")
     root = Path(project_root).resolve()
     resolved = copy.deepcopy(config)
     resolved.source_mode = source_mode
@@ -242,11 +245,32 @@ def run_experiment(
         source_mode=source_mode,
         logger=logger,
     )
-    training_result = trainer.train(resume=resume)
-    best_path = run_dir / "checkpoints/best_source_meta_loss.pt"
-    if not best_path.is_file():
-        raise RuntimeError("meta-training finished without a source-only best checkpoint")
-    load_checkpoint(best_path, model, map_location=device)
+    if adapt_only:
+        adaptation_checkpoint = Path(resume).resolve()
+        payload = load_checkpoint(adaptation_checkpoint, model, map_location=device)
+        if payload["target_file_name"] != target_support.file_name:
+            raise ValueError("adapt-only checkpoint target does not match requested target")
+        if int(payload["L"]) != history_length:
+            raise ValueError("adapt-only checkpoint L does not match requested history length")
+        if payload["source_mode"] != source_mode:
+            raise ValueError("adapt-only checkpoint source mode does not match")
+        if list(payload["source_file_names"]) != source_names:
+            raise ValueError("adapt-only checkpoint source list does not match")
+        training_best_metric = float(payload["best_metric"])
+        adaptation_checkpoint_iteration = int(payload["meta_iteration"])
+        logger.info(
+            "Skipping meta-training; adapting checkpoint=%s iteration=%d",
+            adaptation_checkpoint,
+            adaptation_checkpoint_iteration,
+        )
+    else:
+        training_result = trainer.train(resume=resume)
+        adaptation_checkpoint = run_dir / "checkpoints/best_source_meta_loss.pt"
+        if not adaptation_checkpoint.is_file():
+            raise RuntimeError("meta-training finished without a source-only best checkpoint")
+        payload = load_checkpoint(adaptation_checkpoint, model, map_location=device)
+        training_best_metric = training_result.best_metric
+        adaptation_checkpoint_iteration = int(payload["meta_iteration"])
     model.to(device)
     selected_weights = trainer.compute_weights()
     fast_steps = list(resolved.adaptation.fast_steps)
@@ -350,7 +374,10 @@ def run_experiment(
                 str(step): result.metrics for step, result in fast_results.items()
             },
             "full_metrics": full_result.metrics,
-            "best_source_meta_loss_ema": training_result.best_metric,
+            "best_source_meta_loss_ema": training_best_metric,
+            "adapt_only": adapt_only,
+            "adaptation_checkpoint": str(adaptation_checkpoint),
+            "adaptation_checkpoint_iteration": adaptation_checkpoint_iteration,
         }
     )
     (run_dir / "run_manifest.json").write_text(
@@ -496,7 +523,14 @@ def single_main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--source-mode", choices=["same_family", "all_calce"])
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--resume")
+    parser.add_argument(
+        "--adapt-only",
+        action="store_true",
+        help="load --resume checkpoint and skip all remaining meta-training",
+    )
     args = parser.parse_args(argv)
+    if args.adapt_only and not args.resume:
+        parser.error("--adapt-only requires --resume CHECKPOINT")
     config = load_config(args.config)
     target, history_length, source_mode = args.target, args.history_length, args.source_mode
     if args.resume:
@@ -508,7 +542,7 @@ def single_main(argv: Sequence[str] | None = None) -> None:
         parser.error("--target, --history-length, and --source-mode are required without --resume")
     run_experiment(
         config, str(target), int(history_length), str(source_mode), Path.cwd(),
-        smoke_test=args.smoke_test, resume=args.resume,
+        smoke_test=args.smoke_test, resume=args.resume, adapt_only=args.adapt_only,
     )
 
 

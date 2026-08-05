@@ -182,6 +182,21 @@ python scripts/aggregate_results.py --outputs-dir outputs/runs
 python scripts/run_single.py --resume outputs/runs/RUN_NAME/checkpoints/last.pt --config configs/base.yaml
 ```
 
+저장 iteration과 관계없이 해당 checkpoint 파라미터로 meta-training을 건너뛰고
+target adaptation/평가만 다시 실행:
+
+```bash
+python scripts/run_single.py \
+  --resume outputs/runs/RUN_NAME/checkpoints/last.pt \
+  --config configs/base.yaml \
+  --adapt-only
+```
+
+`--adapt-only`는 전달한 checkpoint 자체를 사용합니다. `last.pt`를 전달하면 마지막
+저장 iteration 모델, `best_source_meta_loss.pt`를 전달하면 best EMA 모델을
+adaptation합니다. 결과는 해당 run 폴더의 adaptation/metrics/predictions/figures를
+갱신합니다.
+
 Checkpoint에는 모델/outer optimizer, iteration, source-only best metric, resolved config, target/source, L, mode, seed, alpha와 Python/NumPy/Torch/CUDA RNG 상태가 포함됩니다.
 
 Target fast adaptation은 기본적으로 하나의 연속 SGD 경로를 20 step까지 실행하고
