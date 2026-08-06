@@ -205,9 +205,13 @@ def run_experiment(
         if resolved.maml.robust_path_steps is not None:
             step_tag = "-".join(str(step) for step in resolved.maml.robust_path_steps)
             objective_tag = f"_pathrobust-s{step_tag}"
+        algorithm_tag = (
+            "_weighted-boil" if resolved.maml.algorithm == "boil" else ""
+        )
         run_dir = root / "outputs/runs" / (
             f"{timestamp}_{source_mode}_{Path(target_name).stem}_"
-            f"L{history_length}_{feature_tag}{objective_tag}_seed{resolved.seed}"
+            f"L{history_length}_{feature_tag}{algorithm_tag}{objective_tag}_"
+            f"seed{resolved.seed}"
         )
     _make_run_tree(run_dir)
     logger = configure_logging(run_dir / "logs/train.log")
@@ -264,6 +268,7 @@ def run_experiment(
             raise ValueError("adapt-only checkpoint source mode does not match")
         if list(payload["source_file_names"]) != source_names:
             raise ValueError("adapt-only checkpoint source list does not match")
+        trainer.validate_checkpoint_objective(payload)
         training_best_metric = float(payload["best_metric"])
         adaptation_checkpoint_iteration = int(payload["meta_iteration"])
         logger.info(
@@ -293,6 +298,7 @@ def run_experiment(
         generator=make_generator(resolved.seed + 2001, device),
         patience=None,
         capture_steps=fast_steps,
+        meta_algorithm=resolved.maml.algorithm,
     )
     full = adapt_target(
         model,
@@ -304,6 +310,7 @@ def run_experiment(
         device=device,
         generator=make_generator(resolved.seed + 3001, device),
         patience=resolved.adaptation.full_patience,
+        meta_algorithm=resolved.maml.algorithm,
     )
     fast.history["is_reported_step"] = fast.history["step"].isin(fast_steps)
     fast.history.to_csv(run_dir / "adaptation/fast_adaptation_history.csv", index=False)

@@ -33,6 +33,9 @@ class ModelConfig:
 
 @dataclass
 class MAMLConfig:
+    # ``boil`` freezes the prediction head during inner-loop adaptation while
+    # still updating every parameter in the outer loop.
+    algorithm: str = "maml"
     full_maml: bool = True
     inner_steps: int = 1
     # When set, source query losses are measured along one continuous inner-loop
@@ -130,6 +133,8 @@ class ExperimentConfig:
             raise ValueError("teacher_forcing_ratio must be in [0, 1]")
         if self.maml.inner_steps <= 0 or self.maml.inner_batch_size <= 0:
             raise ValueError("MAML inner settings must be positive")
+        if self.maml.algorithm not in {"maml", "boil"}:
+            raise ValueError("maml.algorithm must be 'maml' or 'boil'")
         path_steps = self.maml.robust_path_steps
         if path_steps is not None:
             if (

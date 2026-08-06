@@ -118,7 +118,9 @@ def plot_training_outputs(run_dir: str | Path) -> None:
         "weighted_path_worst_query_loss",
         "weighted_path_dispersion",
     ]
-    if all(column in iterations.columns for column in component_columns):
+    if len(path_columns) > 1 and all(
+        column in iterations.columns for column in component_columns
+    ):
         fig, axis = plt.subplots(figsize=(9, 5))
         for column in component_columns:
             axis.plot(

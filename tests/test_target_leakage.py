@@ -94,3 +94,41 @@ def test_fast_adaptation_snapshots_are_one_continuous_trajectory():
             result.snapshots[step].parameters(), rerun.snapshots[step].parameters()
         ):
             torch.testing.assert_close(expected, actual, rtol=0, atol=0)
+
+
+def test_boil_target_adaptation_updates_body_and_freezes_head():
+    torch.manual_seed(17)
+    model = GRUSeq2Seq(hidden_size=4)
+    trajectory = FullCellTrajectory(
+        file_name="CALCE_CX2_37.pkl",
+        cell_id="CX2_37",
+        family="CX2",
+        nominal_capacity_ah=1.0,
+        cycles=np.arange(1, 8),
+        capacities_ah=np.linspace(1.0, 0.8, 7),
+        soh=np.linspace(1.0, 0.8, 7),
+        is_interpolated=np.zeros(7, dtype=bool),
+        true_eol_cycle=7,
+        raw_cycle_count=7,
+        missing_count_before=0,
+        missing_count_after=0,
+    )
+    result = adapt_target(
+        model,
+        trajectory.target_support(6),
+        max_steps=3,
+        learning_rate=0.01,
+        batch_size=3,
+        teacher_forcing_ratio=0.5,
+        device=torch.device("cpu"),
+        generator=torch.Generator().manual_seed(123),
+        capture_steps=[3],
+        meta_algorithm="boil",
+    )
+    snapshot = result.snapshots[3]
+    for before, after in zip(model.head_parameters(), snapshot.head_parameters()):
+        torch.testing.assert_close(before, after, rtol=0, atol=0)
+    assert any(
+        not torch.equal(before, after)
+        for before, after in zip(model.body_parameters(), snapshot.body_parameters())
+    )

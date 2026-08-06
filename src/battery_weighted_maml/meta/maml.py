@@ -1,4 +1,4 @@
-"""Differentiable full-MAML source adaptation and weighted query objective."""
+"""Differentiable MAML/BOIL source adaptation and weighted query objective."""
 
 from __future__ import annotations
 
@@ -27,6 +27,26 @@ class TaskMetaLoss:
     path_mean_loss: torch.Tensor | None = None
     path_dispersion: torch.Tensor | None = None
     path_worst_loss: torch.Tensor | None = None
+
+
+def select_inner_loop_parameters(
+    model: GRUSeq2Seq, meta_algorithm: str
+) -> list[torch.nn.Parameter]:
+    """Select task-adapted parameters while leaving outer parameters untouched.
+
+    MAML adapts the complete encoder-decoder. BOIL adapts only the recurrent
+    body; the final linear SOH head remains connected to the query objective and
+    therefore is still meta-learned by the outer optimizer.
+    """
+    if meta_algorithm == "maml":
+        parameters = list(model.parameters())
+    elif meta_algorithm == "boil":
+        parameters = list(model.body_parameters())
+    else:
+        raise ValueError("meta_algorithm must be 'maml' or 'boil'")
+    if not parameters:
+        raise ValueError(f"{meta_algorithm} selected no inner-loop parameters")
+    return parameters
 
 
 def _loss_on_batch(
@@ -97,11 +117,12 @@ def adapt_source_task(
     device: torch.device,
     generator: torch.Generator,
     full_maml: bool = True,
+    meta_algorithm: str = "maml",
     robust_path_steps: Sequence[int] | None = None,
     robust_path_worst_weight: float = 0.0,
     robust_path_dispersion_weight: float = 0.0,
 ) -> TaskMetaLoss:
-    """Adapt on source support and evaluate one or more path checkpoints."""
+    """Adapt MAML/BOIL parameters and evaluate one or more path checkpoints."""
     query_steps = (
         tuple(robust_path_steps) if robust_path_steps is not None else (inner_steps,)
     )
@@ -115,7 +136,9 @@ def adapt_source_task(
         raise ValueError("inner_steps must be included in robust_path_steps")
     total_inner_steps = max(query_steps)
     dataset = PrefixFutureDataset(task.support_soh, task.support_features)
-    inner_optimizer = torch.optim.SGD(model.parameters(), lr=inner_lr)
+    inner_optimizer = torch.optim.SGD(
+        select_inner_loop_parameters(model, meta_algorithm), lr=inner_lr
+    )
     support_losses: list[torch.Tensor] = []
     # CuDNN RNN kernels do not implement the double backward required by full
     # MAML. Disable CuDNN only for the differentiable source adaptation/query

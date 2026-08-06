@@ -95,8 +95,8 @@ class WeightedMAMLTrainer:
             logger=self.logger,
         )
 
-    def _validate_resume_objective(self, payload: dict[str, object]) -> None:
-        """Prevent silently changing the meta objective inside one run."""
+    def validate_checkpoint_objective(self, payload: dict[str, object]) -> None:
+        """Prevent silently changing the meta algorithm/objective inside one run."""
         saved_config = payload.get("config")
         if not isinstance(saved_config, dict):
             raise ValueError("resume checkpoint has no valid resolved config")
@@ -105,12 +105,16 @@ class WeightedMAMLTrainer:
             raise ValueError("resume checkpoint has no valid MAML config")
         current = self.config.maml
         expected = {
+            "algorithm": current.algorithm,
+            "full_maml": current.full_maml,
             "inner_steps": current.inner_steps,
             "robust_path_steps": current.robust_path_steps,
             "robust_path_worst_weight": current.robust_path_worst_weight,
             "robust_path_dispersion_weight": current.robust_path_dispersion_weight,
         }
         actual = {
+            "algorithm": saved_maml.get("algorithm", "maml"),
+            "full_maml": saved_maml.get("full_maml", True),
             "inner_steps": saved_maml.get("inner_steps"),
             "robust_path_steps": saved_maml.get("robust_path_steps"),
             "robust_path_worst_weight": saved_maml.get(
@@ -122,7 +126,7 @@ class WeightedMAMLTrainer:
         }
         if actual != expected:
             raise ValueError(
-                "resume checkpoint robust adaptation objective differs from config: "
+                "checkpoint meta algorithm/objective differs from config: "
                 f"checkpoint={actual}, requested={expected}"
             )
 
@@ -167,7 +171,7 @@ class WeightedMAMLTrainer:
                 raise ValueError("resume checkpoint source mode does not match")
             if list(payload["source_file_names"]) != [task.file_name for task in self.source_tasks]:
                 raise ValueError("resume checkpoint source list does not match")
-            self._validate_resume_objective(payload)
+            self.validate_checkpoint_objective(payload)
             start_iteration = int(payload["meta_iteration"]) + 1
             best_metric = float(payload["best_metric"])
             ema = float(payload.get("ema_metric", best_metric))
@@ -203,6 +207,7 @@ class WeightedMAMLTrainer:
                         device=self.device,
                         generator=task_generator,
                         full_maml=self.config.maml.full_maml,
+                        meta_algorithm=self.config.maml.algorithm,
                         robust_path_steps=self.config.maml.robust_path_steps,
                         robust_path_worst_weight=(
                             self.config.maml.robust_path_worst_weight
@@ -329,13 +334,15 @@ class WeightedMAMLTrainer:
                 query_log = {
                     item.task_name: float(item.query_loss.detach().cpu()) for item in task_losses
                 }
-                path_log = {
-                    item.task_name: {
-                        step: float(step_loss.detach().cpu())
-                        for step, step_loss in item.query_losses_by_step.items()
+                path_log = None
+                if self.config.maml.robust_path_steps is not None:
+                    path_log = {
+                        item.task_name: {
+                            step: float(step_loss.detach().cpu())
+                            for step, step_loss in item.query_losses_by_step.items()
+                        }
+                        for item in task_losses
                     }
-                    for item in task_losses
-                }
                 top = int(np.argmax(alpha_cpu))
                 self.logger.info(
                     "iter=%d/%d loss=%.7g ema=%.7g support=%s query=%s path=%s alpha=%s "

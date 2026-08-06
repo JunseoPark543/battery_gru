@@ -7,6 +7,7 @@ from battery_weighted_maml.data.task_views import SourceTaskView
 from battery_weighted_maml.meta.maml import (
     adapt_source_task,
     robust_adaptation_path_loss,
+    select_inner_loop_parameters,
     weighted_meta_loss,
 )
 from battery_weighted_maml.models.gru_seq2seq import GRUSeq2Seq
@@ -92,3 +93,30 @@ def test_equal_path_losses_reduce_to_the_legacy_loss_scale():
     torch.testing.assert_close(mean, value)
     torch.testing.assert_close(dispersion, torch.zeros_like(value))
     torch.testing.assert_close(worst, value)
+
+
+def test_boil_inner_scope_excludes_head_but_outer_loss_trains_it():
+    model = GRUSeq2Seq(hidden_size=3)
+    selected_ids = {
+        id(parameter) for parameter in select_inner_loop_parameters(model, "boil")
+    }
+    assert all(id(parameter) in selected_ids for parameter in model.body_parameters())
+    assert all(id(parameter) not in selected_ids for parameter in model.head_parameters())
+
+    result = adapt_source_task(
+        model,
+        _task("boil"),
+        inner_steps=1,
+        inner_lr=0.05,
+        inner_batch_size=8,
+        teacher_forcing_ratio=1.0,
+        device=torch.device("cpu"),
+        generator=torch.Generator().manual_seed(13),
+        full_maml=True,
+        meta_algorithm="boil",
+    )
+    result.query_loss.backward()
+    assert all(
+        parameter.grad is not None and torch.isfinite(parameter.grad).all()
+        for parameter in model.head_parameters()
+    )

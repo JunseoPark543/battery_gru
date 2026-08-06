@@ -13,6 +13,7 @@ from ..data.collate import sample_support_batch
 from ..data.support_dataset import PrefixFutureDataset
 from ..data.task_views import TargetSupportView
 from ..models.gru_seq2seq import GRUSeq2Seq, masked_mse
+from .maml import select_inner_loop_parameters
 
 
 @dataclass
@@ -35,8 +36,9 @@ def adapt_target(
     generator: torch.Generator,
     patience: int | None = None,
     capture_steps: Sequence[int] | None = None,
+    meta_algorithm: str = "maml",
 ) -> AdaptationResult:
-    """Fine-tune every model parameter using only ``TargetSupportView`` pairs."""
+    """Fine-tune the configured inner-loop scope using target support only."""
     if max_steps <= 0:
         raise ValueError("max_steps must be positive")
     requested_steps = set(int(step) for step in (capture_steps or ()))
@@ -44,7 +46,9 @@ def adapt_target(
         raise ValueError("capture_steps must lie between 1 and max_steps")
     adapted = copy.deepcopy(model).to(device)
     adapted.train()
-    optimizer = torch.optim.SGD(adapted.parameters(), lr=learning_rate)
+    optimizer = torch.optim.SGD(
+        select_inner_loop_parameters(adapted, meta_algorithm), lr=learning_rate
+    )
     dataset = PrefixFutureDataset(target.soh, target.features)
     best_state = copy.deepcopy(adapted.state_dict())
     best_loss = float("inf")
@@ -66,7 +70,9 @@ def adapt_target(
             raise FloatingPointError(
                 f"non-finite target support loss at adaptation step {step}: {loss}"
             )
-        optimizer.zero_grad(set_to_none=True)
+        # Clear every gradient, including the BOIL head that is deliberately
+        # absent from the optimizer, so frozen-head gradients never accumulate.
+        adapted.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
         if step in requested_steps:

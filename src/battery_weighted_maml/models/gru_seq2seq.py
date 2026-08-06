@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 import torch
 from torch import nn
@@ -69,6 +69,15 @@ class GRUSeq2Seq(nn.Module):
             batch_first=True,
         )
         self.output = nn.Linear(hidden_size, 1)
+
+    def body_parameters(self) -> Iterator[nn.Parameter]:
+        """Yield the BOIL body: encoder and nonlinear autoregressive decoder."""
+        yield from self.encoder.parameters()
+        yield from self.decoder.parameters()
+
+    def head_parameters(self) -> Iterator[nn.Parameter]:
+        """Yield the BOIL head: the final hidden-to-SOH linear projection."""
+        yield from self.output.parameters()
 
     def encode(
         self, sequence: torch.Tensor, lengths: torch.Tensor

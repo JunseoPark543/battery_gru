@@ -145,7 +145,21 @@ query loss를 측정하고
 `0.75 * mean + 0.25 * worst + 0.25 * population_std`로 결합합니다.
 Target future는 이 meta objective에 사용하지 않습니다.
 
-이 설정은 encoder 입력 차원이 2이므로 기존 SOH-only checkpoint에서 resume할 수 없습니다. 새 run으로 시작해야 합니다.
+이 설정은 encoder 입력 차원이 3이므로 기존 SOH-only checkpoint에서 resume할 수 없습니다. 새 run으로 시작해야 합니다.
+
+Path Robust 추가 loss 없이 BOIL(Body Only update in Inner Loop)을 적용하는
+SOH+전압+전류 L=100 weighted meta-learning 실험:
+
+```bash
+python scripts/run_single.py --target CALCE_CX2_37.pkl --history-length 100 --source-mode same_family --config configs/l100_soh_voltage_current_weighted_boil_2300.yaml
+```
+
+BOIL에서는 GRU encoder와 autoregressive GRU decoder를 body로 정의해 source 및
+target inner loop에서만 업데이트합니다. 마지막 `Linear(hidden_size, 1)` SOH head는
+inner loop에서는 고정하지만, source query MSE의 outer update에서는 body와 함께
+학습합니다. 이 설정의 meta objective는 Path Robust 항이 없는 일반 source query
+MSE이며, 기존과 동일한 target-aware alpha를 곱합니다. BOIL run 이름에는
+`weighted-boil`이 포함되며 MAML 또는 Path Robust checkpoint에서 resume할 수 없습니다.
 
 Weighted meta-learning 없이 SOH 하나만 입력하는 plain GRU encoder-decoder L=500 baseline:
 
