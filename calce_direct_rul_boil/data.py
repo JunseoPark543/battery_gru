@@ -221,7 +221,10 @@ def _infer_domain(
         raise ValueError(
             f"discharge rate {measured:.4f}C is not within {tolerance}C of 0.5C or 1C"
         )
-    domain = f"{family}_{nearest:.1f}C"
+    # Keep domain IDs identical to config.DOMAIN_NAMES. Formatting 1.0 with
+    # ``:.1f`` would produce the unintended ID ``CS2_1.0C``.
+    rate_label = "0.5C" if nearest == 0.5 else "1C"
+    domain = f"{family}_{rate_label}"
     if domain not in DOMAIN_NAMES:
         raise ValueError(f"unsupported inferred domain: {domain}")
     return domain, measured
