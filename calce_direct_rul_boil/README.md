@@ -79,7 +79,7 @@ CPU에서는 `--device cpu`를 사용합니다. `config.yaml`의 `device: auto`�
 
 ## 중단 후 이어서 학습
 
-`last.pt`는 기본적으로 100 outer iteration마다 저장됩니다. 이어갈 때는 checkpoint와 같은 fold/seed를 명시해야 합니다.
+`last.pt`는 기본적으로 100 outer iteration마다 저장되며 early stopping 시점에도 저장됩니다. 한 fold만 이어갈 때는 checkpoint와 같은 fold/seed를 명시합니다. 이미 early stopping 된 checkpoint라면 추가 학습 없이 `best.pt`를 불러와 target 평가만 수행합니다.
 
 ```bash
 python -m calce_direct_rul_boil.main \
@@ -88,6 +88,17 @@ python -m calce_direct_rul_boil.main \
   --seed 42 \
   --device cuda \
   --resume "outputs/calce_direct_rul_boil/실제_RUN/fold_CX2_1C_seed42/checkpoints/last.pt"
+```
+
+`--fold all`로 실행하다 중단된 경우에는 완료된 fold를 건너뛰고 나머지 fold까지 같은 RUN 폴더에서 계속할 수 있습니다.
+
+```bash
+python -m calce_direct_rul_boil.main \
+  --config calce_direct_rul_boil/config.yaml \
+  --fold all \
+  --seed 42 \
+  --device cuda \
+  --resume "outputs/calce_direct_rul_boil/실제_RUN/fold_CS2_0.5C_seed42/checkpoints/last.pt"
 ```
 
 `config.yaml`의 `train.iterations`를 checkpoint iteration보다 크게 바꾸면 그 지점부터 새 종료 iteration까지 이어집니다. 구조나 feature 정의를 바꾼 checkpoint는 재사용하지 마십시오.

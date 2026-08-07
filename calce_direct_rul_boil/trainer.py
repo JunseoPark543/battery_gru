@@ -296,7 +296,22 @@ class SourceOnlyTrainer:
             LOGGER.info("Resumed %s at outer iteration %d", resume, start_iteration)
         stopped_iteration = start_iteration - 1
         self.model.train()
-        for iteration in range(start_iteration, self.config.train.iterations + 1):
+        already_early_stopped = (
+            self.stale_evaluations
+            >= self.config.train.early_stopping_patience_evaluations
+        )
+        if already_early_stopped:
+            LOGGER.info(
+                "Checkpoint had already early-stopped at %d; loading best.pt "
+                "without additional training",
+                stopped_iteration,
+            )
+        iteration_range = (
+            range(start_iteration, self.config.train.iterations + 1)
+            if not already_early_stopped
+            else ()
+        )
+        for iteration in iteration_range:
             joint_x, joint_y, joint_domain = self._joint_batch()
             self.optimizer.zero_grad(set_to_none=True)
             joint_output = self.model(joint_x, self._grl_strength(iteration))

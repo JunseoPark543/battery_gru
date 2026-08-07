@@ -134,15 +134,31 @@ def run(args: argparse.Namespace) -> Path:
         config.validate()
     seeds = [args.seed] if args.seed is not None else list(config.seeds)
     folds = _selected_folds(config, args.fold)
-    if args.resume is not None and (len(folds) != 1 or len(seeds) != 1):
-        raise ValueError("--resume requires exactly one --fold and one --seed")
+    if args.resume is not None and len(seeds) != 1:
+        raise ValueError("--resume requires exactly one --seed")
     device = resolve_device(config.device)
     resume_path = Path(args.resume).resolve() if args.resume else None
+    resume_fold: str | None = None
     if resume_path is not None:
         if not resume_path.is_file():
             raise FileNotFoundError(f"resume checkpoint not found: {resume_path}")
         fold_run_dir = resume_path.parent.parent
         run_root = fold_run_dir.parent
+        matching_folds = [
+            domain
+            for domain in DOMAIN_NAMES
+            if fold_run_dir.name == f"fold_{domain}_seed{seeds[0]}"
+        ]
+        if len(matching_folds) != 1:
+            raise ValueError(
+                "could not infer fold/seed from checkpoint parent directory; expected "
+                "fold_<DOMAIN>_seed<SEED>/checkpoints/last.pt"
+            )
+        resume_fold = matching_folds[0]
+        if resume_fold not in folds:
+            raise ValueError(
+                f"resume checkpoint belongs to {resume_fold}, which is not selected"
+            )
     else:
         run_root = _new_run_root(config, seeds).resolve()
         run_root.mkdir(parents=True, exist_ok=False)
@@ -166,6 +182,22 @@ def run(args: argparse.Namespace) -> Path:
             source, target = split_domain(samples, held_out)
             if resume_path is None:
                 fold_run_dir = run_root / f"fold_{held_out}_seed{seed}"
+                fold_resume = None
+            else:
+                fold_run_dir = run_root / f"fold_{held_out}_seed{seed}"
+                completed_predictions = fold_run_dir / "target_predictions.csv"
+                if completed_predictions.is_file():
+                    LOGGER.info(
+                        "Skipping already completed fold=%s seed=%d", held_out, seed
+                    )
+                    continue
+                candidate_last = fold_run_dir / "checkpoints" / "last.pt"
+                if held_out == resume_fold:
+                    fold_resume = resume_path
+                elif candidate_last.is_file():
+                    fold_resume = candidate_last
+                else:
+                    fold_resume = None
             fold_run_dir.mkdir(parents=True, exist_ok=True)
             save_json(
                 {
@@ -203,7 +235,7 @@ def run(args: argparse.Namespace) -> Path:
                 len(target),
                 _parameter_summary(trainer.model),
             )
-            result = trainer.train(resume=resume_path)
+            result = trainer.train(resume=fold_resume)
             predictions, metrics = _evaluate_unseen_domain(
                 trainer, target, config.evaluation.clip_negative_rul, seed
             )
@@ -314,7 +346,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--resume",
         default=None,
-        help="last.pt path; requires one explicit --fold and one --seed",
+        help=(
+            "last.pt path; with --fold all, resumes that run and continues "
+            "unfinished folds (requires one seed)"
+        ),
     )
     return parser.parse_args(argv)
 

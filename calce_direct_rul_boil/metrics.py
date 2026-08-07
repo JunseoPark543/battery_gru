@@ -18,11 +18,16 @@ def regression_metrics(actual: Sequence[float], predicted: Sequence[float]) -> d
     if not np.all(np.isfinite(truth)) or not np.all(np.isfinite(estimate)):
         raise FloatingPointError("metrics received non-finite values")
     error = estimate - truth
+    squared_error = np.square(error)
     mae = float(np.mean(np.abs(error)))
-    rmse = float(np.sqrt(np.mean(error.square())))
+    rmse = float(np.sqrt(np.mean(squared_error)))
     mape = float(np.mean(np.abs(error) / np.maximum(np.abs(truth), 1.0)) * 100.0)
-    denominator = float(np.sum((truth - truth.mean()).square()))
-    r2 = None if truth.size < 2 or denominator <= 0 else float(1.0 - error.square().sum() / denominator)
+    denominator = float(np.sum(np.square(truth - truth.mean())))
+    r2 = (
+        None
+        if truth.size < 2 or denominator <= 0
+        else float(1.0 - squared_error.sum() / denominator)
+    )
     return {
         "count": int(truth.size),
         "mae_cycles": mae,
