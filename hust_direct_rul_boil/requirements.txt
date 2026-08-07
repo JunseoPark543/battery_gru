@@ -1,0 +1,6 @@
+numpy>=1.26
+pandas>=2.1
+PyYAML>=6.0
+matplotlib>=3.8
+torch>=2.1
+

@@ -1,0 +1,94 @@
+seeds: [42]
+device: auto
+
+data:
+  hust_dir: data/HUST
+  label_path: data/Life labels/HUST_labels.json
+  history_length: 100
+  reference_cycle: 10
+  waveform_points: 64
+  profile_channels:
+    - charge_voltage_v
+    - charge_current_c_rate
+    - charge_capacity_fraction
+    - charge_power_vc
+    - delta_voltage_from_cycle10
+    - delta_current_from_cycle10
+    - delta_capacity_from_cycle10
+    - delta_power_from_cycle10
+  scalar_features:
+    - soh
+    - charge_duration_h
+    - discharge_duration_h
+    - charge_voltage_mean_v
+    - discharge_voltage_mean_v
+    - charge_c_rate
+    - discharge_c_rate
+    - coulombic_efficiency
+    - charge_energy_per_nominal_wh
+    - discharge_energy_per_nominal_wh
+    - delta_soh_from_cycle10
+    - delta_charge_duration_from_cycle10_h
+    - delta_discharge_duration_from_cycle10_h
+    - rolling_soh_slope_10
+  expected_protocol_count: 10
+  current_threshold_c_rate: 0.02
+  minimum_phase_points: 8
+  normalization_epsilon: 1.0e-6
+
+model:
+  waveform_hidden: 32
+  waveform_embedding: 48
+  scalar_embedding: 32
+  d_model: 64
+  nhead: 4
+  attention_stages: 2
+  dim_feedforward: 128
+  dropout: 0.10
+  cbam_reduction: 4
+  cbam_kernel_size: 7
+  embedding_dim: 64
+  predictor_hidden: 64
+  domain_hidden: 64
+  rul_output_scale_cycles: 500.0
+
+loss:
+  raw_rul_huber_beta_cycles: 50.0
+  raw_rul_loss_scale_cycles: 500.0
+  domain_adversarial_weight: 0.10
+  domain_fuzzy_weight: 0.05
+  orthogonality_weight: 0.10
+  meta_support_weight: 1.0
+  meta_query_weight: 1.0
+  grl_max_strength: 1.0
+
+augmentation:
+  enabled: true
+  waveform_gaussian_std: 0.01
+  scalar_gaussian_std: 0.02
+  profile_channel_mask_probability: 0.03
+  cycle_mask_probability: 0.03
+  joint_views_per_cell: 2
+
+train:
+  iterations: 1500
+  validation_cells_per_protocol: 1
+  joint_cells_per_domain: 4
+  meta_support_cells_per_domain: 2
+  inner_steps: 1
+  inner_lr: 0.01
+  outer_lr: 0.001
+  weight_decay: 0.0001
+  second_order: true
+  gradient_clip_norm: 5.0
+  evaluation_interval: 25
+  checkpoint_interval: 100
+  early_stopping_patience_evaluations: 12
+  log_interval: 10
+
+evaluation:
+  held_out_protocols: all
+  clip_negative_rul: true
+
+output:
+  output_dir: outputs/hust_direct_rul_boil
