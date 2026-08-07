@@ -1,0 +1,21 @@
+{
+  "count": 8,
+  "mae_cycles": 421.3892364501953,
+  "median_absolute_error_cycles": 367.05975341796875,
+  "rmse_cycles": 516.4550887172478,
+  "mape_percent": 25.643528714758602,
+  "mean_bias_cycles": -153.44017028808594,
+  "within_10_percent_accuracy": 0.25,
+  "within_15_percent_accuracy": 0.5,
+  "r2": -0.21353933670462544,
+  "max_absolute_error_cycles": 929.8941650390625,
+  "seed": 42,
+  "held_out_protocol": "protocol_1",
+  "target_adaptation": false,
+  "target_labels_used_for_checkpoint_selection": false,
+  "label_normalization": "none; raw RUL cycles",
+  "best_source_validation_iteration": 75,
+  "best_source_validation_mae_cycles": 204.3955841064453,
+  "source_mean_baseline_rul_cycles": 1820.7666666666667,
+  "source_mean_baseline_mae_cycles": 385.19166666666666
+}

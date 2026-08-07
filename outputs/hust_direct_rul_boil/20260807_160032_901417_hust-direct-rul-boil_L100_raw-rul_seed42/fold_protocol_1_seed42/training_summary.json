@@ -1,0 +1,8 @@
+{
+  "held_out_protocol": "protocol_1",
+  "target_labels_used_for_training_or_selection": false,
+  "label_normalization": "none; prediction is raw RUL cycles",
+  "best_iteration": 75,
+  "best_source_validation_mae_cycles": 204.3955841064453,
+  "stopped_iteration": 375
+}

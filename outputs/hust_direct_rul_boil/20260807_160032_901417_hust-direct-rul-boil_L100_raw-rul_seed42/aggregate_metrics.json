@@ -1,0 +1,21 @@
+{
+  "count": 8,
+  "mae_cycles": 421.3892364501953,
+  "median_absolute_error_cycles": 367.05975341796875,
+  "rmse_cycles": 516.4550887172478,
+  "mape_percent": 25.643528714758602,
+  "mean_bias_cycles": -153.44017028808594,
+  "within_10_percent_accuracy": 0.25,
+  "within_15_percent_accuracy": 0.5,
+  "r2": -0.21353933670462544,
+  "max_absolute_error_cycles": 929.8941650390625,
+  "completed_protocols": [
+    "protocol_1"
+  ],
+  "completed_seeds": [
+    42
+  ],
+  "protocol": "pure leave-one-HUST-protocol-out domain generalization",
+  "target_adaptation": false,
+  "label_normalization": "none; raw RUL cycles"
+}

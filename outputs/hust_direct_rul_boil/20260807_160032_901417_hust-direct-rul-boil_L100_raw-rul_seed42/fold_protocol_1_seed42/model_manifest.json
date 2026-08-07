@@ -1,0 +1,94 @@
+{
+  "checkpoint": "/home/JunseoPark/바탕화면/battery_gru/outputs/hust_direct_rul_boil/20260807_160032_901417_hust-direct-rul-boil_L100_raw-rul_seed42/fold_protocol_1_seed42/checkpoints/best.pt",
+  "best_iteration": 75,
+  "stopped_iteration": 375,
+  "label_normalization": "none",
+  "raw_rul_output": true,
+  "normalizer": {
+    "profile_channels": [
+      "charge_voltage_v",
+      "charge_current_c_rate",
+      "charge_capacity_fraction",
+      "charge_power_vc",
+      "delta_voltage_from_cycle10",
+      "delta_current_from_cycle10",
+      "delta_capacity_from_cycle10",
+      "delta_power_from_cycle10"
+    ],
+    "scalar_features": [
+      "soh",
+      "charge_duration_h",
+      "discharge_duration_h",
+      "charge_voltage_mean_v",
+      "discharge_voltage_mean_v",
+      "charge_c_rate",
+      "discharge_c_rate",
+      "coulombic_efficiency",
+      "charge_energy_per_nominal_wh",
+      "discharge_energy_per_nominal_wh",
+      "delta_soh_from_cycle10",
+      "delta_charge_duration_from_cycle10_h",
+      "delta_discharge_duration_from_cycle10_h",
+      "rolling_soh_slope_10"
+    ],
+    "waveform_mean": [
+      3.4683752059936523,
+      2.0215513706207275,
+      0.7962436079978943,
+      6.936685085296631,
+      0.001928393729031086,
+      -0.04691126570105553,
+      0.006267648655921221,
+      -0.16750027239322662
+    ],
+    "waveform_std": [
+      0.13303141295909882,
+      1.9469550848007202,
+      0.3051416575908661,
+      6.672952175140381,
+      0.020529119297862053,
+      0.3037010133266449,
+      0.011669407598674297,
+      1.0936254262924194
+    ],
+    "scalar_mean": [
+      1.0938022136688232,
+      0.5483304262161255,
+      0.4406578242778778,
+      3.47609806060791,
+      3.099409341812134,
+      2.004944324493408,
+      2.5718436241149902,
+      1.0093950033187866,
+      3.8057212829589844,
+      3.3825173377990723,
+      -0.0009059834410436451,
+      0.013200786896049976,
+      -0.0004347685317043215,
+      -3.911394742317498e-05
+    ],
+    "scalar_std": [
+      0.01573374681174755,
+      0.02918902412056923,
+      0.08806708455085754,
+      0.011417885310947895,
+      0.036414507776498795,
+      0.08366049081087112,
+      0.502524197101593,
+      0.0034178774803876877,
+      0.06479164212942123,
+      0.03991110622882843,
+      0.0062935566529631615,
+      0.0181206613779068,
+      0.0031555290333926678,
+      0.0003572464338503778
+    ]
+  },
+  "parameter_counts": {
+    "total": 490534,
+    "trainable": 490534,
+    "domain_invariant": 238734,
+    "domain_specific": 238734,
+    "prediction_head": 8321
+  }
+}
