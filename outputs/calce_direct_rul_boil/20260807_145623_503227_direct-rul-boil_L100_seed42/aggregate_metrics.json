@@ -1,0 +1,29 @@
+{
+  "count": 13,
+  "mae_cycles": 103.24548470040067,
+  "rmse_cycles": 160.57498691579067,
+  "mape_percent": 21.730941208330247,
+  "r2": -1.4645751057297787,
+  "max_absolute_error_cycles": 327.7218016213942,
+  "completed_folds": [
+    "CS2_0.5C",
+    "CS2_1C",
+    "CX2_0.5C",
+    "CX2_1C"
+  ],
+  "completed_seeds": [
+    42
+  ],
+  "protocol": "pure leave-one-domain-out domain generalization",
+  "target_adaptation": false,
+  "seed_level_metric_mean": {
+    "mae_cycles": 103.24548470040067,
+    "rmse_cycles": 160.57498691579067,
+    "mape_percent": 21.730941208330247
+  },
+  "seed_level_metric_population_std": {
+    "mae_cycles": 0.0,
+    "rmse_cycles": 0.0,
+    "mape_percent": 0.0
+  }
+}

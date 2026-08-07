@@ -1,0 +1,45 @@
+{
+  "checkpoint": "/home/JunseoPark/바탕화면/battery_gru/outputs/calce_direct_rul_boil/20260807_145623_503227_direct-rul-boil_L100_seed42/fold_CX2_0.5C_seed42/checkpoints/best.pt",
+  "best_iteration": 880,
+  "stopped_iteration": 1000,
+  "feature_normalizer": {
+    "feature_names": [
+      "soh",
+      "charge_duration_h",
+      "discharge_duration_h",
+      "charge_voltage_mean_v",
+      "discharge_voltage_mean_v",
+      "charge_c_rate",
+      "discharge_c_rate"
+    ],
+    "mean": [
+      0.9719597101211548,
+      2.0440943241119385,
+      1.1699635982513428,
+      3.980714797973633,
+      3.62361478805542,
+      0.4933916926383972,
+      0.8997573256492615
+    ],
+    "std": [
+      0.02984738163650036,
+      0.163356751203537,
+      0.42238616943359375,
+      0.02050004154443741,
+      0.06772594153881073,
+      0.017060281708836555,
+      0.19989965856075287
+    ]
+  },
+  "rul_normalizer": {
+    "mean": 425.4,
+    "std": 44.04588516535909
+  },
+  "parameter_counts": {
+    "total": 52094,
+    "trainable": 52094,
+    "domain_invariant": 24413,
+    "domain_specific": 24413,
+    "prediction_head": 2113
+  }
+}

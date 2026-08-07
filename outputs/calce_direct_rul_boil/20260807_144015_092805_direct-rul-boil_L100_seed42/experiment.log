@@ -1,0 +1,1 @@
+2026-08-07 14:40:15,093 | INFO | Direct-RUL BOIL experiment: folds=['CS2_0.5C', 'CS2_1C', 'CX2_0.5C', 'CX2_1C'] seeds=[42] device=cuda config=/home/JunseoPark/바탕화면/battery_gru/calce_direct_rul_boil/config.yaml

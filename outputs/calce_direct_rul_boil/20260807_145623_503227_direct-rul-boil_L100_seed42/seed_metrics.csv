@@ -1,0 +1,2 @@
+count,mae_cycles,rmse_cycles,mape_percent,r2,max_absolute_error_cycles,seed,completed_folds
+13,103.24548470040067,160.57498691579067,21.730941208330247,-1.4645751057297787,327.7218016213942,42,4

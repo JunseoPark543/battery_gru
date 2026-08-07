@@ -1,0 +1,61 @@
+seeds:
+- 42
+device: cuda
+data:
+  calce_dir: data/CALCE
+  label_path: data/Life labels/CALCE_labels.json
+  history_length: 100
+  features:
+  - soh
+  - charge_duration_h
+  - discharge_duration_h
+  - charge_voltage_mean_v
+  - discharge_voltage_mean_v
+  - charge_c_rate
+  - discharge_c_rate
+  current_threshold_c_rate: 0.02
+  domain_rate_tolerance: 0.2
+  normalization_epsilon: 1.0e-06
+model:
+  d_model: 32
+  nhead: 4
+  attention_stages: 2
+  transformer_layers_per_stage: 1
+  dim_feedforward: 64
+  dropout: 0.1
+  cbam_reduction: 4
+  cbam_kernel_size: 7
+  embedding_dim: 32
+  predictor_hidden: 32
+  domain_hidden: 32
+loss:
+  huber_delta: 1.0
+  domain_adversarial_weight: 0.1
+  domain_fuzzy_weight: 0.05
+  orthogonality_weight: 0.1
+  meta_support_weight: 1.0
+  meta_query_weight: 1.0
+  grl_max_strength: 1.0
+augmentation:
+  enabled: true
+  gaussian_std: 0.02
+  feature_mask_probability: 0.03
+  cycle_mask_probability: 0.03
+  joint_views_per_cell: 2
+train:
+  iterations: 1000
+  inner_steps: 1
+  inner_lr: 0.05
+  outer_lr: 0.001
+  weight_decay: 0.0001
+  second_order: true
+  gradient_clip_norm: 5.0
+  evaluation_interval: 20
+  checkpoint_interval: 100
+  early_stopping_patience_evaluations: 15
+  log_interval: 10
+evaluation:
+  held_out_domains: all
+  clip_negative_rul: true
+output:
+  output_dir: outputs/calce_direct_rul_boil

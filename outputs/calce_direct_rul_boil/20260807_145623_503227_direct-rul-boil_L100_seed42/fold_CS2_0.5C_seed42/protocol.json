@@ -1,0 +1,39 @@
+{
+  "protocol": "pure leave-one-domain-out domain generalization",
+  "held_out_domain": "CS2_0.5C",
+  "seed": 42,
+  "history_length": 100,
+  "label_definition": "EOL cycle - 100",
+  "source_domains": [
+    "CS2_1C",
+    "CX2_0.5C",
+    "CX2_1C"
+  ],
+  "source_files": [
+    "CALCE_CS2_35.pkl",
+    "CALCE_CS2_36.pkl",
+    "CALCE_CS2_37.pkl",
+    "CALCE_CS2_38.pkl",
+    "CALCE_CX2_16.pkl",
+    "CALCE_CX2_33.pkl",
+    "CALCE_CX2_34.pkl",
+    "CALCE_CX2_35.pkl",
+    "CALCE_CX2_36.pkl",
+    "CALCE_CX2_37.pkl",
+    "CALCE_CX2_38.pkl"
+  ],
+  "target_files": [
+    "CALCE_CS2_33.pkl",
+    "CALCE_CS2_34.pkl"
+  ],
+  "target_data_used_during_training": false,
+  "target_adaptation": false,
+  "boil_inner_updated_modules": [
+    "domain_specific"
+  ],
+  "boil_inner_frozen_modules": [
+    "domain_invariant",
+    "predictor",
+    "domain_classifier"
+  ]
+}

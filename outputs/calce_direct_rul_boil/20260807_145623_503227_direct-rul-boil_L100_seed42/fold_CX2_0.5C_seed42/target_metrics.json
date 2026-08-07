@@ -1,0 +1,14 @@
+{
+  "count": 3,
+  "mae_cycles": 211.49209518383213,
+  "rmse_cycles": 249.37776392613438,
+  "mape_percent": 31.643572366353073,
+  "r2": -3.080958237456721,
+  "max_absolute_error_cycles": 327.7218016213942,
+  "seed": 42,
+  "held_out_domain": "CX2_0.5C",
+  "target_adaptation": false,
+  "checkpoint_selection_used_target_labels": false,
+  "best_source_cv_iteration": 880,
+  "best_source_cv_mae_cycles": 0.7334290184827239
+}

@@ -1,0 +1,3 @@
+seed,held_out_domain,file_name,cell_id,history_cycles,actual_eol_cycle,actual_rul_cycles,raw_predicted_rul_cycles,predicted_rul_cycles,predicted_eol_cycle,absolute_error_cycles,target_adaptation_steps
+42,CS2_0.5C,CALCE_CS2_33.pkl,CALCE_CS2_33,100,473,373.0,625.6815213552882,625.6815213552882,725.6815213552882,252.68152135528817,0
+42,CS2_0.5C,CALCE_CS2_34.pkl,CALCE_CS2_34,100,448,348.0,630.7264617216786,630.7264617216786,730.7264617216786,282.72646172167856,0

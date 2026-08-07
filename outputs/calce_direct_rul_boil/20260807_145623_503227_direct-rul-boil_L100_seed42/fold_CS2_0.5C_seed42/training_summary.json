@@ -1,0 +1,7 @@
+{
+  "held_out_domain": "CS2_0.5C",
+  "target_labels_used_for_selection": false,
+  "best_iteration": 480,
+  "best_source_cv_meta_mae_cycles": 2.6916370926121598,
+  "stopped_iteration": 780
+}
