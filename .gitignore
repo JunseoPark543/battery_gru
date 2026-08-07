@@ -7,4 +7,4 @@ __pycache__/
 venv/
 data/CALCE/*.pkl
 data/Life labels/*.json
-
+data/
