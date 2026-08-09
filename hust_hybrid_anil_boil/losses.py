@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Sequence
 
 import torch
 from torch import Tensor
@@ -103,6 +104,66 @@ def residual_regularization(residual: Tensor, scale: float) -> Tensor:
     return torch.mean((residual / scale).square())
 
 
+def specific_residual_fit_loss(
+    residual: Tensor,
+    general_prediction: Tensor,
+    target: Tensor,
+    scale: float,
+) -> Tensor:
+    """Train Specific as a correction without letting this term move General."""
+    residual_target = target - general_prediction.detach()
+    return F.mse_loss(residual / scale, residual_target / scale)
+
+
+def within_domain_rul_difference_loss(
+    prediction: Tensor,
+    target: Tensor,
+    domain: Tensor,
+    scale: float,
+) -> Tensor:
+    """Preserve cell-to-cell RUL ordering and spacing inside each protocol."""
+    if len(prediction) < 2:
+        return prediction.new_zeros(())
+    same_domain = domain[:, None].eq(domain[None, :])
+    upper_triangle = torch.triu(
+        torch.ones_like(same_domain, dtype=torch.bool), diagonal=1
+    )
+    pair_mask = same_domain & upper_triangle
+    if not bool(pair_mask.any().detach()):
+        return prediction.new_zeros(())
+    prediction_difference = (prediction[:, None] - prediction[None, :]) / scale
+    target_difference = (target[:, None] - target[None, :]) / scale
+    return F.smooth_l1_loss(
+        prediction_difference[pair_mask],
+        target_difference[pair_mask],
+    )
+
+
+def adaptation_path_objective(
+    predictions: Sequence[Tensor],
+    target: Tensor,
+    scale: float,
+) -> tuple[Tensor, Tensor]:
+    """Mean path error and positive regret relative to no adaptation.
+
+    The first prediction must be step 0.  Regret only penalizes steps that are
+    worse than the initialization; useful adaptation is never penalized.
+    """
+    if not predictions:
+        zero = target.new_zeros(())
+        return zero, zero
+    losses = torch.stack(
+        [scaled_prediction_mse(prediction, target, scale) for prediction in predictions]
+    )
+    mean_path = losses.mean()
+    regret = (
+        torch.relu(losses[1:] - losses[0]).mean()
+        if len(losses) > 1
+        else losses.new_zeros(())
+    )
+    return mean_path, regret
+
+
 @dataclass
 class LossBreakdown:
     total: Tensor
@@ -116,6 +177,10 @@ class LossBreakdown:
     consistency: Tensor
     orthogonal: Tensor
     residual: Tensor
+    specific_residual_fit: Tensor
+    within_domain_difference: Tensor
+    adaptation_path: Tensor
+    adaptation_regret: Tensor
     general_domain_accuracy: Tensor
     specific_domain_accuracy: Tensor
     mean_absolute_residual: Tensor
@@ -190,9 +255,27 @@ def outer_objective(
         if ablation.use_residual_regularization
         else zero
     )
+    specific_residual_fit = (
+        specific_residual_fit_loss(
+            output.specific_residual,
+            output.general_prediction,
+            target,
+            config.rul_scale_cycles,
+        )
+        if ablation.prediction_mode == "residual"
+        else zero
+    )
+    within_domain_difference = within_domain_rul_difference_loss(
+        output.prediction,
+        target,
+        domain,
+        config.rul_scale_cycles,
+    )
     total = (
         config.lambda_total_prediction * total_prediction
         + config.lambda_general_prediction * general_prediction
+        + config.lambda_specific_residual_fit * specific_residual_fit
+        + config.lambda_within_domain_difference * within_domain_difference
         + auxiliary_scale * (
             config.lambda_general_domain * general_domain
             + config.lambda_specific_domain * specific_domain
@@ -223,6 +306,10 @@ def outer_objective(
         consistency=consistency,
         orthogonal=orthogonal,
         residual=residual,
+        specific_residual_fit=specific_residual_fit,
+        within_domain_difference=within_domain_difference,
+        adaptation_path=zero,
+        adaptation_regret=zero,
         general_domain_accuracy=general_accuracy,
         specific_domain_accuracy=specific_accuracy,
         mean_absolute_residual=output.specific_residual.abs().mean(),

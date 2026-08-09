@@ -21,7 +21,7 @@ from hust_direct_rul_boil.trainer import resolve_device, set_global_seed
 
 from .analysis import save_training_diagnostics
 from .config import ExperimentConfig
-from .losses import LossBreakdown, outer_objective
+from .losses import LossBreakdown, adaptation_path_objective, outer_objective
 from .meta import (
     adapt_task,
     concatenate_outputs,
@@ -335,6 +335,8 @@ class HybridTrainer:
         domain_batches = []
         support_losses: list[Tensor] = []
         update_norms: dict[str, list[Tensor]] = {}
+        path_losses: list[Tensor] = []
+        path_regrets: list[Tensor] = []
         for protocol in protocols:
             support_samples, query_samples = self._sample_episode(protocol)
             support_waveforms, support_scalars, support_targets = self.batch(support_samples)
@@ -351,15 +353,35 @@ class HybridTrainer:
                 steps=self.config.train.inner_steps,
                 config=self.config,
             )
-            outputs.append(
-                forward_with_parameters(
-                    self.model,
-                    adapted.parameters,
-                    query_waveforms,
-                    query_scalars,
-                    grl_strength=self._grl_strength(iteration),
-                )
+            final_output = forward_with_parameters(
+                self.model,
+                adapted.parameters,
+                query_waveforms,
+                query_scalars,
+                grl_strength=self._grl_strength(iteration),
             )
+            outputs.append(final_output)
+            if self.config.train.meta_path_steps:
+                path_predictions: list[Tensor] = []
+                for path_step in self.config.train.meta_path_steps:
+                    if path_step == self.config.train.inner_steps:
+                        path_output = final_output
+                    else:
+                        path_output = forward_with_parameters(
+                            self.model,
+                            adapted.parameter_trajectory[path_step],
+                            query_waveforms,
+                            query_scalars,
+                            grl_strength=0.0,
+                        )
+                    path_predictions.append(path_output.prediction)
+                path_mean, path_regret = adaptation_path_objective(
+                    path_predictions,
+                    query_targets,
+                    self.config.loss.rul_scale_cycles,
+                )
+                path_losses.append(path_mean)
+                path_regrets.append(path_regret)
             target_batches.append(query_targets)
             domain_batches.append(
                 torch.full(
@@ -384,6 +406,14 @@ class HybridTrainer:
             self.config.ablation,
             auxiliary_scale=self._auxiliary_scale(iteration),
         )
+        if path_losses:
+            loss.adaptation_path = torch.stack(path_losses).mean()
+            loss.adaptation_regret = torch.stack(path_regrets).mean()
+            loss.total = (
+                loss.total
+                + self.config.loss.lambda_adaptation_path * loss.adaptation_path
+                + self.config.loss.lambda_adaptation_regret * loss.adaptation_regret
+            )
         diagnostics = {
             "support_loss": float(
                 torch.stack(support_losses).mean().detach().cpu()
@@ -426,35 +456,43 @@ class HybridTrainer:
                     if self.config.train.validation_strategy == "held_out_source_protocol"
                     else 1
                 )
-                support = group[:support_count]
-                query = group[support_count:]
-                if not query:
-                    raise ValueError(f"{protocol}: source validation has no query cells")
-                support_waveforms, support_scalars, support_targets = self.batch(support)
-                query_waveforms, query_scalars, query_targets = self.batch(query)
-                adapted = adapt_task(
-                    self.model,
-                    support_waveforms,
-                    support_scalars,
-                    support_targets,
-                    method=self.method,
-                    steps=(
-                        0
-                        if self.method == "supervised"
-                        else self.config.train.validation_adaptation_steps
-                    ),
-                    config=self.config,
-                    second_order=False,
+                repeat_count = (
+                    self.config.train.validation_support_repeats
+                    if self.config.train.validation_strategy == "held_out_source_protocol"
+                    else 1
                 )
-                output = forward_with_parameters(
-                    self.model,
-                    adapted.parameters,
-                    query_waveforms,
-                    query_scalars,
-                    grl_strength=0.0,
-                )
-                predictions.append(output.prediction.detach())
-                targets.append(query_targets.detach())
+                for repeat in range(repeat_count):
+                    offset = (repeat * support_count) % len(group)
+                    rotated = group[offset:] + group[:offset]
+                    support = rotated[:support_count]
+                    query = rotated[support_count:]
+                    if not query:
+                        raise ValueError(f"{protocol}: source validation has no query cells")
+                    support_waveforms, support_scalars, support_targets = self.batch(support)
+                    query_waveforms, query_scalars, query_targets = self.batch(query)
+                    adapted = adapt_task(
+                        self.model,
+                        support_waveforms,
+                        support_scalars,
+                        support_targets,
+                        method=self.method,
+                        steps=(
+                            0
+                            if self.method == "supervised"
+                            else self.config.train.validation_adaptation_steps
+                        ),
+                        config=self.config,
+                        second_order=False,
+                    )
+                    output = forward_with_parameters(
+                        self.model,
+                        adapted.parameters,
+                        query_waveforms,
+                        query_scalars,
+                        grl_strength=0.0,
+                    )
+                    predictions.append(output.prediction.detach())
+                    targets.append(query_targets.detach())
         prediction = torch.cat(predictions)
         target = torch.cat(targets)
         score = float(torch.mean(torch.abs(prediction - target)).cpu())
@@ -545,6 +583,39 @@ class HybridTrainer:
             raise ValueError("checkpoint held-out protocol does not match")
         if int(payload["seed"]) != self.seed:
             raise ValueError("checkpoint seed does not match")
+        saved_config = payload.get("config", {})
+        saved_model = dict(saved_config.get("model", {}))
+        # Checkpoints written before V3 used an exactly-zero Specific head.
+        saved_model.setdefault("residual_head_initialization_scale", 0.0)
+        saved_loss = dict(saved_config.get("loss", {}))
+        for key in (
+            "lambda_specific_residual_fit",
+            "lambda_within_domain_difference",
+            "lambda_adaptation_path",
+            "lambda_adaptation_regret",
+        ):
+            saved_loss.setdefault(key, 0.0)
+        current = self.config.to_dict()
+        if saved_model != current["model"] or saved_loss != current["loss"]:
+            raise ValueError(
+                "checkpoint model/loss definition does not match; start a fresh run "
+                "when switching between V1/V2 and V3"
+            )
+        if saved_config.get("ablation") != current["ablation"]:
+            raise ValueError("checkpoint ablation definition does not match")
+        saved_train = saved_config.get("train", {})
+        for key, default in (("meta_path_steps", []),):
+            saved_train.setdefault(key, default)
+        objective_train_keys = (
+            "inner_steps",
+            "meta_path_steps",
+            "inner_lr_general_head",
+            "inner_lr_specific_encoder",
+            "inner_lr_other",
+            "first_order",
+        )
+        if any(saved_train.get(key) != current["train"][key] for key in objective_train_keys):
+            raise ValueError("checkpoint inner-loop objective does not match")
         if payload["training_files"] != [sample.file_name for sample in self.train_samples]:
             raise ValueError("checkpoint training split does not match")
         if payload["validation_files"] != [sample.file_name for sample in self.validation_samples]:
@@ -625,6 +696,12 @@ class HybridTrainer:
                 "L_C": float(losses.consistency.detach().cpu()),
                 "L_O": float(losses.orthogonal.detach().cpu()),
                 "L_delta": float(losses.residual.detach().cpu()),
+                "L_specific_fit": float(losses.specific_residual_fit.detach().cpu()),
+                "L_within_domain_difference": float(
+                    losses.within_domain_difference.detach().cpu()
+                ),
+                "L_path": float(losses.adaptation_path.detach().cpu()),
+                "L_regret": float(losses.adaptation_regret.detach().cpu()),
                 "general_domain_accuracy_batch": float(losses.general_domain_accuracy.detach().cpu()),
                 "specific_domain_accuracy_batch": float(losses.specific_domain_accuracy.detach().cpu()),
                 "mean_absolute_specific_residual": float(losses.mean_absolute_residual.detach().cpu()),
@@ -646,7 +723,9 @@ class HybridTrainer:
                 LOGGER.info(
                     "method=%s fold=%s iter=%d/%d total=%.6g query=%.6g "
                     "L_GY=%.6g L_G=%.6g L_S=%.6g L_SC=%.6g L_R=%.6g L_C=%.6g "
-                    "L_O=%.6g L_delta=%.6g val_mae=%s best=%.3f@%d stale=%d",
+                    "L_O=%.6g L_delta=%.6g L_SF=%.6g L_pair=%.6g "
+                    "L_path=%.6g L_regret=%.6g "
+                    "val_mae=%s best=%.3f@%d stale=%d",
                     self.method,
                     self.held_out_protocol,
                     iteration,
@@ -661,6 +740,10 @@ class HybridTrainer:
                     row["L_C"],
                     row["L_O"],
                     row["L_delta"],
+                    row["L_specific_fit"],
+                    row["L_within_domain_difference"],
+                    row["L_path"],
+                    row["L_regret"],
                     "-" if validation_score is None else f"{validation_score:.3f}",
                     self.best_score,
                     self.best_iteration,
@@ -693,6 +776,7 @@ class HybridTrainer:
                 "target_protocol_used_for_training_or_checkpoint_selection": False,
                 "validation_strategy": self.config.train.validation_strategy,
                 "meta_validation_protocols": self.meta_validation_protocols,
+                "validation_support_repeats": self.config.train.validation_support_repeats,
                 "auxiliary_loss_data": "post-adaptation query cells from source protocols only",
                 "consistency_pairs": "different source protocols with similar RUL/500 state",
                 "label_normalization": "none; raw RUL cycles",

@@ -54,6 +54,7 @@ model:
   reconstruction_hidden: 96
   rul_output_scale_cycles: 500.0
   residual_limit_cycles: 500.0
+  residual_head_initialization_scale: 0.0
 
 loss:
   rul_scale_cycles: 500.0

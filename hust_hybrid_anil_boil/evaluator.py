@@ -66,6 +66,72 @@ def _batch(
     return waveforms, scalars, targets
 
 
+def _select_deployment_step_from_support(
+    training: TrainingResult,
+    support: Sequence[CellSample],
+    config: ExperimentConfig,
+    device: torch.device,
+) -> tuple[int, dict[int, float]]:
+    """Select a step without query labels using leave-one-support-cell-out MAE."""
+    if config.method == "supervised":
+        return 0, {0: 0.0}
+    if config.evaluation.deployment_step_selection == "fixed":
+        return config.evaluation.primary_adaptation_step, {}
+    if len(support) < 2:
+        LOGGER.warning("support_loo needs at least two cells; falling back to step 0")
+        return 0, {0: 0.0}
+    candidates = (
+        list(config.evaluation.deployment_candidate_steps)
+        or list(config.evaluation.adaptation_steps)
+    )
+    max_steps = max(candidates)
+    absolute_errors: dict[int, list[float]] = {step: [] for step in candidates}
+    model = training.model
+    for validation_index, validation_sample in enumerate(support):
+        adaptation_support = [
+            sample for index, sample in enumerate(support) if index != validation_index
+        ]
+        support_waveforms, support_scalars, support_targets = _batch(
+            adaptation_support, training, device
+        )
+        validation_waveforms, validation_scalars, validation_target = _batch(
+            [validation_sample], training, device
+        )
+        with torch.enable_grad():
+            adapted = adapt_task(
+                model,
+                support_waveforms,
+                support_scalars,
+                support_targets,
+                method=config.method,
+                steps=max_steps,
+                config=config,
+                second_order=False,
+            )
+            for step in candidates:
+                output = forward_with_parameters(
+                    model,
+                    adapted.parameter_trajectory[step],
+                    validation_waveforms,
+                    validation_scalars,
+                    grl_strength=0.0,
+                )
+                prediction = output.prediction.detach()
+                if config.evaluation.clip_negative_rul:
+                    prediction = prediction.clamp_min(0.0)
+                error = torch.abs(prediction - validation_target).mean()
+                absolute_errors[step].append(float(error.cpu()))
+    scores = {
+        step: float(np.mean(values)) for step, values in absolute_errors.items()
+    }
+    best_step = min(candidates, key=lambda step: (scores[step], step))
+    baseline = scores.get(0, float("inf"))
+    improvement = baseline - scores[best_step]
+    if improvement < config.evaluation.support_loo_min_improvement_cycles:
+        best_step = 0
+    return best_step, scores
+
+
 def evaluate_unseen_protocol(
     training: TrainingResult,
     targets: Sequence[CellSample],
@@ -100,6 +166,18 @@ def evaluate_unseen_protocol(
             support, training, device
         )
         query_waveforms, query_scalars, query_targets = _batch(query, training, device)
+        selected_step, support_step_scores = _select_deployment_step_from_support(
+            training, support, config, device
+        )
+        support_splits[-1].update(
+            {
+                "deployment_step_selection": config.evaluation.deployment_step_selection,
+                "selected_adaptation_step": selected_step,
+                "support_loo_mae_by_step": {
+                    str(step): score for step, score in support_step_scores.items()
+                },
+            }
+        )
         with torch.no_grad():
             before = model(query_waveforms, query_scalars, grl_strength=0.0)
         for steps in sorted(config.evaluation.adaptation_steps):
@@ -143,6 +221,7 @@ def evaluate_unseen_protocol(
             mean_residual = float(np.mean(np.abs(residual)))
             residual_ratio = mean_residual / max(mean_general, 1.0e-8)
             warning = residual_ratio > config.evaluation.residual_ratio_warning
+            is_deployment_selection = steps == selected_step
             if warning:
                 LOGGER.warning(
                     "method=%s fold=%s repeat=%d step=%d residual/general ratio %.3f exceeds %.3f",
@@ -161,6 +240,11 @@ def evaluate_unseen_protocol(
                     "support_repeat": repeat,
                     "adaptation_step": steps,
                     "effective_adaptation_step": effective_steps,
+                    "deployment_step_selection": config.evaluation.deployment_step_selection,
+                    "deployment_selected_step": selected_step,
+                    "is_deployment_selection": is_deployment_selection,
+                    "support_loo_selected_mae_cycles": support_step_scores.get(selected_step),
+                    "support_loo_zero_step_mae_cycles": support_step_scores.get(0),
                     **metrics,
                     "y_general_mae_cycles": general_metrics["mae_cycles"],
                     "y_general_rmse_cycles": general_metrics["rmse_cycles"],
@@ -189,6 +273,9 @@ def evaluate_unseen_protocol(
                         "held_out_protocol": held_out,
                         "support_repeat": repeat,
                         "adaptation_step": steps,
+                        "deployment_step_selection": config.evaluation.deployment_step_selection,
+                        "deployment_selected_step": selected_step,
+                        "is_deployment_selection": is_deployment_selection,
                         "file_name": sample.file_name,
                         "cell_id": sample.cell_id,
                         "domain": sample.protocol,
@@ -201,7 +288,7 @@ def evaluate_unseen_protocol(
                         "prediction_mode": config.ablation.prediction_mode,
                     }
                 )
-            if steps == config.evaluation.primary_adaptation_step:
+            if is_deployment_selection:
                 feature_parts["general"].append(output.general_embedding.detach().cpu().numpy())
                 feature_parts["specific"].append(output.specific_embedding.detach().cpu().numpy())
                 feature_parts["domain"].append(np.asarray([sample.protocol for sample in query]))

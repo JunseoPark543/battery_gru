@@ -37,6 +37,9 @@ class ModelConfig:
     reconstruction_hidden: int = 96
     rul_output_scale_cycles: float = 500.0
     residual_limit_cycles: float = 500.0
+    # A zero final layer blocks the BOIL gradient into the Specific encoder at
+    # initialization.  Keep a small non-zero default for new experiments.
+    residual_head_initialization_scale: float = 0.01
 
 
 @dataclass
@@ -51,6 +54,10 @@ class LossConfig:
     lambda_consistency: float = 0.01
     lambda_orthogonal: float = 0.01
     lambda_residual: float = 0.001
+    lambda_specific_residual_fit: float = 0.0
+    lambda_within_domain_difference: float = 0.0
+    lambda_adaptation_path: float = 0.0
+    lambda_adaptation_regret: float = 0.0
     inner_general_prediction_beta: float = 0.0
     consistency_sigma: float = 0.15
     specific_contrastive_temperature: float = 0.10
@@ -86,12 +93,14 @@ class TrainConfig:
     validation_cells_per_protocol: int = 2
     validation_strategy: str = "within_protocol_cells"
     validation_support_cells: int = 2
+    validation_support_repeats: int = 1
     domain_validation_cells_per_protocol: int = 1
     support_cells_per_task: int = 2
     query_cells_per_task: int = 2
     tasks_per_iteration: int = 4
     supervised_cells_per_domain: int = 4
     inner_steps: int = 1
+    meta_path_steps: list[int] = field(default_factory=list)
     inner_lr_general_head: float = 0.01
     inner_lr_specific_encoder: float = 0.01
     inner_lr_other: float = 0.01
@@ -115,6 +124,9 @@ class EvaluationConfig:
     target_support_repeats: int = 1
     adaptation_steps: list[int] = field(default_factory=lambda: [0, 1, 2, 5, 10])
     primary_adaptation_step: int = 1
+    deployment_step_selection: str = "fixed"
+    deployment_candidate_steps: list[int] = field(default_factory=list)
+    support_loo_min_improvement_cycles: float = 0.0
     clip_negative_rul: bool = True
     residual_ratio_warning: float = 0.5
 
@@ -173,9 +185,11 @@ class ExperimentConfig:
         if any(
             float(value) <= 0
             for key, value in model_values.items()
-            if key != "dropout"
+            if key not in ("dropout", "residual_head_initialization_scale")
         ):
             raise ValueError("model dimensions and physical output scales must be positive")
+        if self.model.residual_head_initialization_scale < 0:
+            raise ValueError("residual_head_initialization_scale cannot be negative")
         if self.ablation.prediction_mode not in PREDICTION_MODES:
             raise ValueError(f"prediction_mode must be one of {PREDICTION_MODES}")
         loss_values = asdict(self.loss)
@@ -198,6 +212,7 @@ class ExperimentConfig:
             train.iterations,
             train.validation_cells_per_protocol,
             train.validation_support_cells,
+            train.validation_support_repeats,
             train.domain_validation_cells_per_protocol,
             train.support_cells_per_task,
             train.query_cells_per_task,
@@ -218,6 +233,22 @@ class ExperimentConfig:
             raise ValueError("training counts/rates must be positive")
         if train.inner_steps < 0 or train.validation_adaptation_steps < 0:
             raise ValueError("adaptation step counts cannot be negative")
+        path_steps = train.meta_path_steps
+        if any(step < 0 for step in path_steps) or len(set(path_steps)) != len(path_steps):
+            raise ValueError("meta_path_steps must be unique non-negative integers")
+        if path_steps and max(path_steps) > train.inner_steps:
+            raise ValueError("meta_path_steps cannot exceed train.inner_steps")
+        if (
+            self.loss.lambda_adaptation_path > 0
+            or self.loss.lambda_adaptation_regret > 0
+        ) and not path_steps:
+            raise ValueError("adaptation path/regret loss requires meta_path_steps")
+        if (
+            self.loss.lambda_adaptation_regret > 0
+            and path_steps
+            and path_steps[0] != 0
+        ):
+            raise ValueError("adaptation regret requires step 0 first in meta_path_steps")
         if train.prediction_warmup_iterations < 0:
             raise ValueError("prediction_warmup_iterations cannot be negative")
         if train.validation_strategy not in (
@@ -243,8 +274,25 @@ class ExperimentConfig:
             raise ValueError("adaptation_steps must include zero")
         if self.evaluation.primary_adaptation_step not in steps:
             raise ValueError("primary_adaptation_step must be in adaptation_steps")
+        if self.evaluation.deployment_step_selection not in ("fixed", "support_loo"):
+            raise ValueError("deployment_step_selection must be fixed or support_loo")
+        candidates = self.evaluation.deployment_candidate_steps
+        if candidates:
+            if any(step < 0 for step in candidates) or len(set(candidates)) != len(candidates):
+                raise ValueError("deployment_candidate_steps must be unique non-negative integers")
+            if not set(candidates).issubset(steps):
+                raise ValueError("deployment_candidate_steps must be a subset of adaptation_steps")
+            if self.evaluation.deployment_step_selection == "support_loo" and 0 not in candidates:
+                raise ValueError("support_loo deployment candidates must include step 0")
+        if self.evaluation.support_loo_min_improvement_cycles < 0:
+            raise ValueError("support_loo_min_improvement_cycles cannot be negative")
         if self.evaluation.target_support_cells <= 0:
             raise ValueError("target_support_cells must be positive")
+        if (
+            self.evaluation.deployment_step_selection == "support_loo"
+            and self.evaluation.target_support_cells < 2
+        ):
+            raise ValueError("support_loo requires at least two target support cells")
         if self.evaluation.target_support_repeats <= 0:
             raise ValueError("target_support_repeats must be positive")
         if self.evaluation.residual_ratio_warning <= 0:

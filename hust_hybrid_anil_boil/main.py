@@ -128,6 +128,10 @@ def _apply_overrides(config: ExperimentConfig, args: argparse.Namespace) -> None
         ("lambda_consistency", "lambda_consistency"),
         ("lambda_orthogonal", "lambda_orthogonal"),
         ("lambda_residual", "lambda_residual"),
+        ("lambda_specific_residual_fit", "lambda_specific_residual_fit"),
+        ("lambda_within_domain_difference", "lambda_within_domain_difference"),
+        ("lambda_adaptation_path", "lambda_adaptation_path"),
+        ("lambda_adaptation_regret", "lambda_adaptation_regret"),
     ):
         value = getattr(args, argument)
         if value is not None:
@@ -143,6 +147,12 @@ def _apply_overrides(config: ExperimentConfig, args: argparse.Namespace) -> None
     ):
         if getattr(args, argument):
             setattr(config.ablation, attribute, False)
+    if args.deployment_step_selection is not None:
+        config.evaluation.deployment_step_selection = args.deployment_step_selection
+    if args.support_loo_min_improvement is not None:
+        config.evaluation.support_loo_min_improvement_cycles = (
+            args.support_loo_min_improvement
+        )
     config.validate()
 
 
@@ -157,10 +167,16 @@ def _run_name(methods: Sequence[str], seeds: Sequence[int], config: ExperimentCo
         else "valcells"
     )
     contrastive = str(config.loss.lambda_specific_contrastive).replace(".", "p")
+    selection = (
+        "supportloo"
+        if config.evaluation.deployment_step_selection == "support_loo"
+        else f"fixed{config.evaluation.primary_adaptation_step}"
+    )
+    path_weight = str(config.loss.lambda_adaptation_regret).replace(".", "p")
     return (
         f"{stamp}_hust_{method_text}_L100_{order}_inner{config.train.inner_steps}_"
         f"{validation}_sc{contrastive}_rep{config.evaluation.target_support_repeats}_"
-        f"seed{seed_text}"
+        f"{selection}_regret{path_weight}_seed{seed_text}"
     )
 
 
@@ -211,14 +227,66 @@ def _aggregate_outputs(run_root: Path, config: ExperimentConfig) -> None:
         )
     aggregate = pd.DataFrame(aggregate_rows)
     aggregate.to_csv(run_root / "aggregate_adaptation_metrics.csv", index=False)
+    if "is_deployment_selection" in predictions:
+        selected_predictions = predictions[
+            predictions.is_deployment_selection.astype(str).str.lower().eq("true")
+        ]
+        selected_fold_metrics = fold_metrics[
+            fold_metrics.is_deployment_selection.astype(str).str.lower().eq("true")
+        ]
+    else:
+        selected_predictions = predictions[
+            predictions.adaptation_step == config.evaluation.primary_adaptation_step
+        ]
+        selected_fold_metrics = fold_metrics[
+            fold_metrics.adaptation_step == config.evaluation.primary_adaptation_step
+        ].copy()
+        selected_fold_metrics["deployment_selected_step"] = (
+            config.evaluation.primary_adaptation_step
+        )
+    selected_predictions.to_csv(run_root / "deployment_predictions.csv", index=False)
+    deployment_rows: list[dict[str, Any]] = []
+    for method, group in selected_predictions.groupby("method", sort=False):
+        metrics = regression_metrics(group.target_y, group.y_hat)
+        metric_group = selected_fold_metrics[selected_fold_metrics.method == method]
+        step_counts = {
+            str(int(step)): int(count)
+            for step, count in metric_group.deployment_selected_step.value_counts().sort_index().items()
+        }
+        deployment_rows.append(
+            {
+                "method": method,
+                **metrics,
+                "deployment_step_selection": config.evaluation.deployment_step_selection,
+                "selected_step_distribution": json.dumps(step_counts, sort_keys=True),
+                "mean_selected_adaptation_step": float(
+                    metric_group.deployment_selected_step.mean()
+                ),
+                "general_domain_accuracy": float(
+                    metric_group.source_validation_general_domain_accuracy.mean()
+                ),
+                "specific_domain_accuracy": float(
+                    metric_group.source_validation_specific_domain_accuracy.mean()
+                ),
+                "general_representation_change": float(
+                    metric_group.general_representation_cosine_distance.mean()
+                ),
+                "specific_representation_change": float(
+                    metric_group.specific_representation_cosine_distance.mean()
+                ),
+                "mean_absolute_specific_residual": float(
+                    metric_group.mean_absolute_specific_residual.mean()
+                ),
+                "y_general_mae_cycles": float(metric_group.y_general_mae_cycles.mean()),
+            }
+        )
+    deployment = pd.DataFrame(deployment_rows)
+    deployment.to_csv(run_root / "deployment_metrics.csv", index=False)
     comparison_rows: list[dict[str, Any]] = []
-    for method, group in aggregate.groupby("method", sort=False):
-        best = group.loc[group.mae_cycles.idxmin()]
-        primary_step = 0 if method == "supervised" else config.evaluation.primary_adaptation_step
-        primary_match = group[group.adaptation_step == primary_step]
-        if primary_match.empty:
-            raise RuntimeError(f"method={method} has no primary step={primary_step}")
-        primary = primary_match.iloc[0]
+    for _, primary in deployment.iterrows():
+        method = str(primary.method)
+        diagnostic_group = aggregate[aggregate.method == method]
+        best = diagnostic_group.loc[diagnostic_group.mae_cycles.idxmin()]
         policy_file = next(run_root.glob(f"method_{method}/fold_*_seed*/inner_policy.json"))
         policy = json.loads(policy_file.read_text(encoding="utf-8"))
         comparison_rows.append(
@@ -231,7 +299,9 @@ def _aggregate_outputs(run_root: Path, config: ExperimentConfig) -> None:
                 "r2": primary.r2,
                 "params_adapted": ", ".join(policy["inner_updated_modules"]) or "none",
                 "adapted_parameter_count": int(policy["inner_updated_parameter_count"]),
-                "primary_adaptation_step": primary_step,
+                "deployment_step_selection": primary.deployment_step_selection,
+                "selected_step_distribution": primary.selected_step_distribution,
+                "mean_selected_adaptation_step": primary.mean_selected_adaptation_step,
                 "diagnostic_best_adaptation_step": int(best.adaptation_step),
                 "diagnostic_best_mae_cycles": best.mae_cycles,
             }
@@ -259,16 +329,17 @@ def _aggregate_outputs(run_root: Path, config: ExperimentConfig) -> None:
             )
         for payload in payloads:
             payload.close()
-    proposed = aggregate[
-        (aggregate.method == "hybrid")
-        & (aggregate.adaptation_step == config.evaluation.primary_adaptation_step)
-    ]
+    proposed = deployment[deployment.method == "hybrid"]
     if not proposed.empty:
         row = proposed.iloc[0].to_dict()
         save_json(
             {
                 "method": "General-ANIL + Specific-BOIL",
-                "primary_adaptation_step": config.evaluation.primary_adaptation_step,
+                "deployment_step_selection": row["deployment_step_selection"],
+                "selected_step_distribution": json.loads(
+                    row["selected_step_distribution"]
+                ),
+                "mean_selected_adaptation_step": row["mean_selected_adaptation_step"],
                 "general_domain_accuracy_source_validation": row["general_domain_accuracy"],
                 "specific_domain_accuracy_source_validation": row["specific_domain_accuracy"],
                 "general_representation_cosine_change": row["general_representation_change"],
@@ -276,7 +347,8 @@ def _aggregate_outputs(run_root: Path, config: ExperimentConfig) -> None:
                 "mean_absolute_delta_y_S": row["mean_absolute_specific_residual"],
                 "y_G_only_mae_cycles": row["y_general_mae_cycles"],
                 "final_mae_cycles": row["mae_cycles"],
-                "best_step_is_oracle_diagnostic_only": True,
+                "diagnostic_best_step_is_oracle_only": True,
+                "target_query_labels_used_for_step_selection": False,
             },
             run_root / "proposed_method_summary.json",
         )
@@ -379,6 +451,14 @@ def run(args: argparse.Namespace) -> Path:
                     {
                         "target_support_splits": evaluation.support_splits,
                         "target_support_repeats": method_config.evaluation.target_support_repeats,
+                        "deployment_step_selection": method_config.evaluation.deployment_step_selection,
+                        "deployment_candidate_steps": (
+                            method_config.evaluation.deployment_candidate_steps
+                            or method_config.evaluation.adaptation_steps
+                        ),
+                        "support_loo_min_improvement_cycles": (
+                            method_config.evaluation.support_loo_min_improvement_cycles
+                        ),
                         "target_support_labels_used_for_adaptation": method != "supervised",
                         "target_query_labels_used_for_adaptation_or_model_selection": False,
                         "best_checkpoint": str(training.checkpoint_path.resolve()),
@@ -393,8 +473,7 @@ def run(args: argparse.Namespace) -> Path:
                     f"{DISPLAY_NAMES[method]} | unseen {held_out} | seed {seed}",
                 )
                 primary = evaluation.predictions[
-                    evaluation.predictions.adaptation_step
-                    == method_config.evaluation.primary_adaptation_step
+                    evaluation.predictions.is_deployment_selection
                 ]
                 _fold_prediction_figure(
                     primary,
@@ -435,6 +514,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--lambda-consistency", type=float, default=None)
     parser.add_argument("--lambda-orthogonal", type=float, default=None)
     parser.add_argument("--lambda-residual", type=float, default=None)
+    parser.add_argument("--lambda-specific-residual-fit", type=float, default=None)
+    parser.add_argument("--lambda-within-domain-difference", type=float, default=None)
+    parser.add_argument("--lambda-adaptation-path", type=float, default=None)
+    parser.add_argument("--lambda-adaptation-regret", type=float, default=None)
+    parser.add_argument(
+        "--deployment-step-selection",
+        choices=("fixed", "support_loo"),
+        default=None,
+    )
+    parser.add_argument("--support-loo-min-improvement", type=float, default=None)
     parser.add_argument("--no-grl", action="store_true")
     parser.add_argument("--no-specific-domain", action="store_true")
     parser.add_argument("--no-reconstruction", action="store_true")

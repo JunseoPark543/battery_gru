@@ -47,7 +47,14 @@ class GeneralRULHead(nn.Module):
 class SpecificResidualHead(nn.Module):
     """Signed, bounded domain/task-specific correction in cycle units."""
 
-    def __init__(self, embedding: int, hidden: int, dropout: float, limit: float) -> None:
+    def __init__(
+        self,
+        embedding: int,
+        hidden: int,
+        dropout: float,
+        limit: float,
+        initialization_scale: float,
+    ) -> None:
         super().__init__()
         self.network = nn.Sequential(
             nn.Linear(embedding, hidden),
@@ -58,7 +65,10 @@ class SpecificResidualHead(nn.Module):
         self.limit = float(limit)
         final = self.network[-1]
         if isinstance(final, nn.Linear):
-            nn.init.zeros_(final.weight)
+            if initialization_scale > 0:
+                nn.init.normal_(final.weight, mean=0.0, std=initialization_scale)
+            else:
+                nn.init.zeros_(final.weight)
             nn.init.zeros_(final.bias)
 
     def forward(self, embedding: Tensor) -> Tensor:
@@ -175,6 +185,7 @@ class GeneralSpecificRULModel(nn.Module):
             model_config.predictor_hidden,
             model_config.dropout,
             model_config.residual_limit_cycles,
+            model_config.residual_head_initialization_scale,
         )
         self.concat_head = ConcatRULHead(
             model_config.embedding_dim,
@@ -274,4 +285,3 @@ class GeneralSpecificRULModel(nn.Module):
             )
         result["total"] = sum(parameter.numel() for parameter in self.parameters())
         return result
-

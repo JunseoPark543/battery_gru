@@ -20,6 +20,7 @@ class AdaptationResult:
     parameters: OrderedDict[str, Tensor]
     support_losses: list[Tensor]
     update_norms: dict[str, Tensor]
+    parameter_trajectory: dict[int, OrderedDict[str, Tensor]]
 
 
 def inner_module_names(method: str, prediction_mode: str) -> tuple[str, ...]:
@@ -132,14 +133,15 @@ def adapt_task(
         for name, parameter in model.named_parameters()
         if name in selected
     )
+    trajectory: dict[int, OrderedDict[str, Tensor]] = {0: OrderedDict(fast)}
     if steps > 0 and not fast:
         if method == "supervised":
-            return AdaptationResult(fast, [], {})
+            return AdaptationResult(fast, [], {}, trajectory)
         raise RuntimeError(f"method={method} selected no inner-loop parameters")
     create_graph = (not config.train.first_order) if second_order is None else second_order
     support_losses: list[Tensor] = []
     norm_squares: dict[str, list[Tensor]] = {}
-    for _ in range(steps):
+    for step in range(1, steps + 1):
         output = forward_with_parameters(
             model,
             fast,
@@ -163,12 +165,13 @@ def adapt_task(
             module = name.split(".", 1)[0]
             norm_squares.setdefault(module, []).append(update.square().sum())
         fast = updated
+        trajectory[step] = OrderedDict(fast)
         support_losses.append(loss)
     update_norms = {
         module: torch.sqrt(torch.stack(values).sum().clamp_min(0.0))
         for module, values in norm_squares.items()
     }
-    return AdaptationResult(fast, support_losses, update_norms)
+    return AdaptationResult(fast, support_losses, update_norms, trajectory)
 
 
 def concatenate_outputs(outputs: Sequence[HybridOutput]) -> HybridOutput:

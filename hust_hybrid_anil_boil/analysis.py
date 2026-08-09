@@ -21,7 +21,8 @@ def save_training_diagnostics(history: list[dict[str, Any]], path: str | Path) -
     figure, axes = plt.subplots(2, 1, figsize=(11, 8), sharex=True)
     for column in (
         "total_loss", "query_loss", "L_GY", "L_G", "L_S", "L_SC",
-        "L_R", "L_C", "L_O", "L_delta",
+        "L_R", "L_C", "L_O", "L_delta", "L_specific_fit",
+        "L_within_domain_difference", "L_path", "L_regret",
     ):
         if column in frame:
             axes[0].plot(frame.iteration, frame[column], label=column, alpha=0.75)

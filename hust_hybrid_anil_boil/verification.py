@@ -101,6 +101,7 @@ def run_checks() -> dict[str, object]:
     assert not any(name.startswith("specific_head.") for name in selected)
     assert adapted.update_norms["general_head"] > 0
     assert adapted.update_norms["specific_encoder"] > 0
+    assert set(adapted.parameter_trajectory) == {0, 1}
     query_output = forward_with_parameters(
         model, adapted.parameters, waveforms[2:], scalars[2:]
     )
@@ -138,6 +139,7 @@ def run_checks() -> dict[str, object]:
         "inner_updated_modules": policy["inner_updated_modules"],
         "inner_frozen_general_encoder": True,
         "inner_frozen_specific_head": True,
+        "inner_trajectory_steps": sorted(adapted.parameter_trajectory),
         "outer_gradient_all_prediction_modules": True,
         "finite_outputs": True,
         "checkpoint_roundtrip": "ok",
@@ -146,4 +148,3 @@ def run_checks() -> dict[str, object]:
 
 if __name__ == "__main__":
     print(json.dumps(run_checks(), indent=2))
-

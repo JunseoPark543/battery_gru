@@ -53,26 +53,38 @@ model:
   domain_hidden: 64
   reconstruction_hidden: 96
   rul_output_scale_cycles: 500.0
-  residual_limit_cycles: 750.0
-  residual_head_initialization_scale: 0.0
+  residual_limit_cycles: 1250.0
+  # Non-zero initialization is required for a BOIL gradient to reach E_S at
+  # the start of training while P_S remains frozen in the inner loop.
+  residual_head_initialization_scale: 0.01
 
 loss:
   rul_scale_cycles: 500.0
   lambda_total_prediction: 1.0
-  lambda_general_prediction: 0.75
-  lambda_general_domain: 0.01
+  lambda_general_prediction: 0.50
+  lambda_general_domain: 0.05
   lambda_specific_domain: 0.02
   lambda_specific_contrastive: 0.02
   lambda_reconstruction: 0.005
   lambda_consistency: 0.005
   lambda_orthogonal: 0.01
   lambda_residual: 0.0001
-  inner_general_prediction_beta: 0.25
+  # Stops y_G from taking the full task by training delta_y_S against the
+  # detached remaining error y - y_G.
+  lambda_specific_residual_fit: 0.50
+  # V2 regressed toward the mean and even reversed some protocol-1 cell order;
+  # learn robust pairwise RUL spacing within every source protocol.
+  lambda_within_domain_difference: 0.25
+  # Penalize inaccurate intermediate adaptations and positive regret relative
+  # to step 0 on source query cells.
+  lambda_adaptation_path: 0.25
+  lambda_adaptation_regret: 1.0
+  inner_general_prediction_beta: 0.0
   consistency_sigma: 0.15
   specific_contrastive_temperature: 0.10
   domain_label_smoothing: 0.05
   orthogonality_reduction: sum
-  grl_max_strength: 0.5
+  grl_max_strength: 1.0
 
 ablation:
   use_grl: true
@@ -96,13 +108,17 @@ train:
   validation_cells_per_protocol: 2
   validation_strategy: held_out_source_protocol
   validation_support_cells: 2
+  validation_support_repeats: 4
   domain_validation_cells_per_protocol: 1
   support_cells_per_task: 2
   query_cells_per_task: 2
   tasks_per_iteration: 8
   supervised_cells_per_domain: 4
   inner_steps: 5
-  inner_lr_general_head: 0.02
+  meta_path_steps: [0, 1, 2, 5]
+  # General-head adaptation caused most of V2's drift, so it is conservative;
+  # Specific BOIL retains the larger learning rate.
+  inner_lr_general_head: 0.005
   inner_lr_specific_encoder: 0.02
   inner_lr_other: 0.01
   outer_lr: 0.0005
@@ -123,8 +139,13 @@ evaluation:
   target_support_repeats: 4
   adaptation_steps: [0, 1, 2, 5, 10]
   primary_adaptation_step: 5
+  # Query labels are never used.  Step 0 is retained unless leave-one-support-
+  # cell-out MAE improves by at least 25 cycles.
+  deployment_step_selection: support_loo
+  deployment_candidate_steps: [0, 1, 2, 5]
+  support_loo_min_improvement_cycles: 25.0
   clip_negative_rul: true
-  residual_ratio_warning: 0.5
+  residual_ratio_warning: 0.50
 
 output:
   output_dir: outputs/hust_hybrid_anil_boil
