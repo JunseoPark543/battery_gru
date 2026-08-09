@@ -1,0 +1,120 @@
+seeds: [42]
+device: auto
+method: hybrid
+
+data:
+  hust_dir: data/HUST
+  label_path: data/Life labels/HUST_labels.json
+  history_length: 100
+  reference_cycle: 10
+  waveform_points: 64
+  profile_channels:
+    - charge_voltage_v
+    - charge_current_c_rate
+    - charge_capacity_fraction
+    - charge_power_vc
+    - delta_voltage_from_cycle10
+    - delta_current_from_cycle10
+    - delta_capacity_from_cycle10
+    - delta_power_from_cycle10
+  scalar_features:
+    - soh
+    - charge_duration_h
+    - discharge_duration_h
+    - charge_voltage_mean_v
+    - discharge_voltage_mean_v
+    - charge_c_rate
+    - discharge_c_rate
+    - coulombic_efficiency
+    - charge_energy_per_nominal_wh
+    - discharge_energy_per_nominal_wh
+    - delta_soh_from_cycle10
+    - delta_charge_duration_from_cycle10_h
+    - delta_discharge_duration_from_cycle10_h
+    - rolling_soh_slope_10
+  expected_protocol_count: 10
+  current_threshold_c_rate: 0.02
+  minimum_phase_points: 8
+  normalization_epsilon: 1.0e-6
+
+model:
+  waveform_hidden: 32
+  waveform_embedding: 48
+  scalar_embedding: 32
+  d_model: 64
+  nhead: 4
+  attention_stages: 2
+  dim_feedforward: 128
+  dropout: 0.10
+  cbam_reduction: 4
+  cbam_kernel_size: 7
+  embedding_dim: 64
+  predictor_hidden: 64
+  domain_hidden: 64
+  reconstruction_hidden: 96
+  rul_output_scale_cycles: 500.0
+  residual_limit_cycles: 500.0
+
+loss:
+  rul_scale_cycles: 500.0
+  lambda_total_prediction: 1.0
+  lambda_general_prediction: 0.5
+  lambda_general_domain: 0.05
+  lambda_specific_domain: 0.05
+  lambda_reconstruction: 0.01
+  lambda_consistency: 0.01
+  lambda_orthogonal: 0.01
+  lambda_residual: 0.001
+  inner_general_prediction_beta: 0.0
+  consistency_sigma: 0.15
+  grl_max_strength: 1.0
+
+ablation:
+  use_grl: true
+  use_specific_domain_classifier: true
+  use_reconstruction: true
+  use_consistency: true
+  use_orthogonality: true
+  use_general_prediction_loss: true
+  use_residual_regularization: true
+  prediction_mode: residual
+
+augmentation:
+  enabled: true
+  waveform_gaussian_std: 0.01
+  scalar_gaussian_std: 0.02
+  profile_channel_mask_probability: 0.03
+  cycle_mask_probability: 0.03
+
+train:
+  iterations: 1500
+  validation_cells_per_protocol: 2
+  support_cells_per_task: 2
+  query_cells_per_task: 2
+  tasks_per_iteration: 4
+  supervised_cells_per_domain: 4
+  inner_steps: 1
+  inner_lr_general_head: 0.01
+  inner_lr_specific_encoder: 0.01
+  inner_lr_other: 0.01
+  outer_lr: 0.001
+  weight_decay: 0.0001
+  first_order: true
+  gradient_clip_norm: 5.0
+  evaluation_interval: 25
+  checkpoint_interval: 100
+  early_stopping_patience_evaluations: 12
+  log_interval: 10
+  validation_adaptation_steps: 1
+
+evaluation:
+  held_out_protocols: all
+  target_support_cells: 2
+  adaptation_steps: [0, 1, 2, 5, 10]
+  primary_adaptation_step: 1
+  clip_negative_rul: true
+  residual_ratio_warning: 0.5
+
+output:
+  output_dir: outputs/hust_hybrid_anil_boil
+
