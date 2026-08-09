@@ -1,0 +1,12 @@
+{
+  "method": "General-ANIL + Specific-BOIL",
+  "primary_adaptation_step": 1,
+  "general_domain_accuracy_source_validation": 0.1111111111111111,
+  "specific_domain_accuracy_source_validation": 0.3333333333333333,
+  "general_representation_cosine_change": -9.934107758624576e-09,
+  "specific_representation_cosine_change": 0.0001545051782159,
+  "mean_absolute_delta_y_S": 31.65049171447754,
+  "y_G_only_mae_cycles": 455.078104654948,
+  "final_mae_cycles": 457.71368408203125,
+  "best_step_is_oracle_diagnostic_only": true
+}

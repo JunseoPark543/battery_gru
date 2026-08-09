@@ -1,0 +1,13 @@
+{
+  "method": "hybrid",
+  "held_out_protocol": "protocol_1",
+  "target_protocol_used_for_training_or_checkpoint_selection": false,
+  "auxiliary_loss_data": "post-adaptation query cells from source protocols only",
+  "consistency_pairs": "different source protocols with similar RUL/500 state",
+  "label_normalization": "none; raw RUL cycles",
+  "best_iteration": 575,
+  "best_source_validation_mae_cycles": 247.3395233154297,
+  "stopped_iteration": 875,
+  "general_domain_accuracy": 0.1111111111111111,
+  "specific_domain_accuracy": 0.3333333333333333
+}

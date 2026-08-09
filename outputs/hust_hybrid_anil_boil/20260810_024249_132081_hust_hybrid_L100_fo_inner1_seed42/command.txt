@@ -1,0 +1,1 @@
+'/home/JunseoPark/바탕화면/battery_gru/hust_hybrid_anil_boil/main.py' --config hust_hybrid_anil_boil/config.yaml --method hybrid --fold protocol_1 --seed 42 --device cuda
