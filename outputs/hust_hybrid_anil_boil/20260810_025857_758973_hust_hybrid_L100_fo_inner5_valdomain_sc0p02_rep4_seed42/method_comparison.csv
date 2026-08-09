@@ -1,0 +1,2 @@
+method,method_key,mae_cycles,rmse_cycles,mape_percent,r2,params_adapted,adapted_parameter_count,primary_adaptation_step,diagnostic_best_adaptation_step,diagnostic_best_mae_cycles
+General-ANIL + Specific-BOIL,hybrid,412.26397705078125,562.7902609123381,26.515111152478628,-0.44105940211127237,"general_head, specific_encoder",242959,5,0,377.3328399658203
