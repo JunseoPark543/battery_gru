@@ -96,6 +96,27 @@ python -m hust_hybrid_anil_boil.main \
   --device cuda
 ```
 
+## 결과 분석 후 개선한 V2
+
+Protocol 1의 첫 실행에서는 step-1 MAE 457.71 cycles, R² -0.538이었고,
+Specific representation cosine change가 0.000155에 불과했습니다. 분석과
+변경 근거는 `RESULT_ANALYSIS_20260810.md`에 기록했습니다.
+
+개선 설정은 기존 checkpoint를 resume하지 말고 처음부터 학습합니다.
+
+```bash
+python -m hust_hybrid_anil_boil.main \
+  --config hust_hybrid_anil_boil/config_v2.yaml \
+  --method hybrid \
+  --fold protocol_1 \
+  --seed 42 \
+  --device cuda
+```
+
+V2는 unseen source protocol checkpoint selection, prediction warm-up,
+Specific supervised contrastive loss, five-step inner adaptation, auxiliary
+loss ramp, 네 개 target support split 반복 평가를 사용합니다.
+
 기본은 계산량을 줄인 first-order입니다. Second-order는 다음 옵션을 추가합니다.
 
 ```bash
@@ -209,4 +230,3 @@ outputs/hust_hybrid_anil_boil/<RUN>/
 ```
 
 `target_predictions.csv`에는 `cell_id, domain, target_y, y_G, delta_y_S, y_hat, absolute_error`가 저장됩니다. `adaptation_metrics.csv`에는 step별 MAE/RMSE/MAPE/R², General/Specific representation cosine·L2 변화, source-validation domain accuracy, residual 크기가 저장됩니다.
-

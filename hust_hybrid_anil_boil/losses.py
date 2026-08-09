@@ -17,24 +17,58 @@ def scaled_prediction_mse(prediction: Tensor, target: Tensor, scale: float) -> T
     return F.mse_loss(prediction / scale, target / scale)
 
 
-def general_domain_loss(logits: Tensor, domain: Tensor) -> Tensor:
-    return F.cross_entropy(logits, domain)
+def general_domain_loss(
+    logits: Tensor, domain: Tensor, label_smoothing: float = 0.0
+) -> Tensor:
+    return F.cross_entropy(logits, domain, label_smoothing=label_smoothing)
 
 
-def specific_domain_loss(logits: Tensor, domain: Tensor) -> Tensor:
-    return F.cross_entropy(logits, domain)
+def specific_domain_loss(
+    logits: Tensor, domain: Tensor, label_smoothing: float = 0.0
+) -> Tensor:
+    return F.cross_entropy(logits, domain, label_smoothing=label_smoothing)
+
+
+def specific_supervised_contrastive_loss(
+    embedding: Tensor, domain: Tensor, temperature: float
+) -> Tensor:
+    """Cluster different cells from the same protocol without target-domain data."""
+    if len(embedding) < 2:
+        return embedding.new_zeros(())
+    features = F.normalize(embedding, dim=-1, eps=1.0e-8)
+    logits = features @ features.transpose(0, 1) / temperature
+    identity = torch.eye(len(embedding), dtype=torch.bool, device=embedding.device)
+    positives = domain[:, None].eq(domain[None, :]) & ~identity
+    valid_anchor = positives.any(dim=1)
+    if not bool(valid_anchor.any().detach()):
+        return embedding.new_zeros(())
+    logits = logits - logits.max(dim=1, keepdim=True).values.detach()
+    exp_logits = torch.exp(logits) * (~identity).to(logits.dtype)
+    log_probability = logits - torch.log(exp_logits.sum(dim=1, keepdim=True).clamp_min(1.0e-12))
+    positive_count = positives.sum(dim=1).clamp_min(1)
+    per_anchor = -(
+        (log_probability * positives.to(log_probability.dtype)).sum(dim=1)
+        / positive_count
+    )
+    return per_anchor[valid_anchor].mean()
 
 
 def reconstruction_loss(prediction: Tensor, target: Tensor) -> Tensor:
     return F.mse_loss(prediction, target)
 
 
-def orthogonality_loss(general: Tensor, specific: Tensor) -> Tensor:
+def orthogonality_loss(
+    general: Tensor, specific: Tensor, reduction: str = "mean"
+) -> Tensor:
     """Squared normalized cross-covariance between the two representations."""
     general = F.normalize(general - general.mean(dim=0, keepdim=True), dim=-1, eps=1.0e-8)
     specific = F.normalize(specific - specific.mean(dim=0, keepdim=True), dim=-1, eps=1.0e-8)
     cross = general.transpose(0, 1) @ specific / max(1, general.shape[0])
-    return cross.square().mean()
+    if reduction == "sum":
+        return cross.square().sum()
+    if reduction == "mean":
+        return cross.square().mean()
+    raise ValueError(f"unknown orthogonality reduction: {reduction}")
 
 
 def general_consistency_loss(
@@ -77,6 +111,7 @@ class LossBreakdown:
     general_prediction: Tensor
     general_domain: Tensor
     specific_domain: Tensor
+    specific_contrastive: Tensor
     reconstruction: Tensor
     consistency: Tensor
     orthogonal: Tensor
@@ -92,6 +127,7 @@ def outer_objective(
     domain: Tensor,
     config: LossConfig,
     ablation: AblationConfig,
+    auxiliary_scale: float = 1.0,
 ) -> LossBreakdown:
     zero = output.prediction.new_zeros(())
     total_prediction = scaled_prediction_mse(
@@ -104,11 +140,24 @@ def outer_objective(
         if ablation.use_general_prediction_loss
         else zero
     )
-    general_domain = general_domain_loss(output.general_domain_logits, domain)
+    general_domain = general_domain_loss(
+        output.general_domain_logits, domain, config.domain_label_smoothing
+    )
     specific_domain = (
-        specific_domain_loss(output.specific_domain_logits, domain)
+        specific_domain_loss(
+            output.specific_domain_logits, domain, config.domain_label_smoothing
+        )
         if ablation.use_specific_domain_classifier
         and output.specific_domain_logits is not None
+        else zero
+    )
+    specific_contrastive = (
+        specific_supervised_contrastive_loss(
+            output.specific_embedding,
+            domain,
+            config.specific_contrastive_temperature,
+        )
+        if config.lambda_specific_contrastive > 0
         else zero
     )
     reconstruction = (
@@ -128,7 +177,11 @@ def outer_objective(
         else zero
     )
     orthogonal = (
-        orthogonality_loss(output.general_embedding, output.specific_embedding)
+        orthogonality_loss(
+            output.general_embedding,
+            output.specific_embedding,
+            config.orthogonality_reduction,
+        )
         if ablation.use_orthogonality
         else zero
     )
@@ -140,12 +193,15 @@ def outer_objective(
     total = (
         config.lambda_total_prediction * total_prediction
         + config.lambda_general_prediction * general_prediction
-        + config.lambda_general_domain * general_domain
-        + config.lambda_specific_domain * specific_domain
-        + config.lambda_reconstruction * reconstruction
-        + config.lambda_consistency * consistency
-        + config.lambda_orthogonal * orthogonal
-        + config.lambda_residual * residual
+        + auxiliary_scale * (
+            config.lambda_general_domain * general_domain
+            + config.lambda_specific_domain * specific_domain
+            + config.lambda_specific_contrastive * specific_contrastive
+            + config.lambda_reconstruction * reconstruction
+            + config.lambda_consistency * consistency
+            + config.lambda_orthogonal * orthogonal
+            + config.lambda_residual * residual
+        )
     )
     general_accuracy = (
         output.general_domain_logits.argmax(dim=-1).eq(domain).float().mean()
@@ -162,6 +218,7 @@ def outer_objective(
         general_prediction=general_prediction,
         general_domain=general_domain,
         specific_domain=specific_domain,
+        specific_contrastive=specific_contrastive,
         reconstruction=reconstruction,
         consistency=consistency,
         orthogonal=orthogonal,
@@ -183,4 +240,3 @@ def inner_objective(
             output.general_prediction, target, config.rul_scale_cycles
         )
     return total
-

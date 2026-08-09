@@ -46,12 +46,16 @@ class LossConfig:
     lambda_general_prediction: float = 0.5
     lambda_general_domain: float = 0.05
     lambda_specific_domain: float = 0.05
+    lambda_specific_contrastive: float = 0.0
     lambda_reconstruction: float = 0.01
     lambda_consistency: float = 0.01
     lambda_orthogonal: float = 0.01
     lambda_residual: float = 0.001
     inner_general_prediction_beta: float = 0.0
     consistency_sigma: float = 0.15
+    specific_contrastive_temperature: float = 0.10
+    domain_label_smoothing: float = 0.0
+    orthogonality_reduction: str = "mean"
     grl_max_strength: float = 1.0
 
 
@@ -80,6 +84,9 @@ class AugmentationConfig:
 class TrainConfig:
     iterations: int = 1500
     validation_cells_per_protocol: int = 2
+    validation_strategy: str = "within_protocol_cells"
+    validation_support_cells: int = 2
+    domain_validation_cells_per_protocol: int = 1
     support_cells_per_task: int = 2
     query_cells_per_task: int = 2
     tasks_per_iteration: int = 4
@@ -97,12 +104,15 @@ class TrainConfig:
     early_stopping_patience_evaluations: int = 12
     log_interval: int = 10
     validation_adaptation_steps: int = 1
+    prediction_warmup_iterations: int = 0
+    auxiliary_ramp_iterations: int = 1
 
 
 @dataclass
 class EvaluationConfig:
     held_out_protocols: list[str] | str = "all"
     target_support_cells: int = 2
+    target_support_repeats: int = 1
     adaptation_steps: list[int] = field(default_factory=lambda: [0, 1, 2, 5, 10])
     primary_adaptation_step: int = 1
     clip_negative_rul: bool = True
@@ -171,12 +181,24 @@ class ExperimentConfig:
         loss_values = asdict(self.loss)
         if self.loss.rul_scale_cycles <= 0 or self.loss.consistency_sigma <= 0:
             raise ValueError("loss scale and consistency sigma must be positive")
-        if any(float(value) < 0 for key, value in loss_values.items() if key != "consistency_sigma"):
+        if self.loss.specific_contrastive_temperature <= 0:
+            raise ValueError("specific_contrastive_temperature must be positive")
+        if not 0 <= self.loss.domain_label_smoothing < 1:
+            raise ValueError("domain_label_smoothing must lie in [0, 1)")
+        if self.loss.orthogonality_reduction not in ("mean", "sum"):
+            raise ValueError("orthogonality_reduction must be mean or sum")
+        if any(
+            float(value) < 0
+            for key, value in loss_values.items()
+            if key not in ("consistency_sigma", "orthogonality_reduction")
+        ):
             raise ValueError("loss coefficients must be non-negative")
         train = self.train
         positive_train = (
             train.iterations,
             train.validation_cells_per_protocol,
+            train.validation_support_cells,
+            train.domain_validation_cells_per_protocol,
             train.support_cells_per_task,
             train.query_cells_per_task,
             train.tasks_per_iteration,
@@ -190,11 +212,18 @@ class ExperimentConfig:
             train.checkpoint_interval,
             train.early_stopping_patience_evaluations,
             train.log_interval,
+            train.auxiliary_ramp_iterations,
         )
         if any(float(value) <= 0 for value in positive_train):
             raise ValueError("training counts/rates must be positive")
         if train.inner_steps < 0 or train.validation_adaptation_steps < 0:
             raise ValueError("adaptation step counts cannot be negative")
+        if train.prediction_warmup_iterations < 0:
+            raise ValueError("prediction_warmup_iterations cannot be negative")
+        if train.validation_strategy not in (
+            "within_protocol_cells", "held_out_source_protocol"
+        ):
+            raise ValueError("unknown validation_strategy")
         if train.validation_cells_per_protocol < 2:
             raise ValueError("source validation needs at least two cells per protocol")
         if train.weight_decay < 0:
@@ -216,6 +245,8 @@ class ExperimentConfig:
             raise ValueError("primary_adaptation_step must be in adaptation_steps")
         if self.evaluation.target_support_cells <= 0:
             raise ValueError("target_support_cells must be positive")
+        if self.evaluation.target_support_repeats <= 0:
+            raise ValueError("target_support_repeats must be positive")
         if self.evaluation.residual_ratio_warning <= 0:
             raise ValueError("residual_ratio_warning must be positive")
         held_out = self.evaluation.held_out_protocols

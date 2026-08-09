@@ -123,6 +123,7 @@ def _apply_overrides(config: ExperimentConfig, args: argparse.Namespace) -> None
         ("lambda_general_prediction", "lambda_general_prediction"),
         ("lambda_general_domain", "lambda_general_domain"),
         ("lambda_specific_domain", "lambda_specific_domain"),
+        ("lambda_specific_contrastive", "lambda_specific_contrastive"),
         ("lambda_reconstruction", "lambda_reconstruction"),
         ("lambda_consistency", "lambda_consistency"),
         ("lambda_orthogonal", "lambda_orthogonal"),
@@ -150,7 +151,17 @@ def _run_name(methods: Sequence[str], seeds: Sequence[int], config: ExperimentCo
     method_text = "all-methods" if len(methods) > 1 else methods[0]
     seed_text = "-".join(str(seed) for seed in seeds)
     order = "fo" if config.train.first_order else "so"
-    return f"{stamp}_hust_{method_text}_L100_{order}_inner{config.train.inner_steps}_seed{seed_text}"
+    validation = (
+        "valdomain"
+        if config.train.validation_strategy == "held_out_source_protocol"
+        else "valcells"
+    )
+    contrastive = str(config.loss.lambda_specific_contrastive).replace(".", "p")
+    return (
+        f"{stamp}_hust_{method_text}_L100_{order}_inner{config.train.inner_steps}_"
+        f"{validation}_sc{contrastive}_rep{config.evaluation.target_support_repeats}_"
+        f"seed{seed_text}"
+    )
 
 
 def _fold_prediction_figure(frame: pd.DataFrame, path: Path, title: str) -> None:
@@ -366,8 +377,8 @@ def run(args: argparse.Namespace) -> Path:
                 np.savez_compressed(fold_dir / "primary_features.npz", **evaluation.feature_payload)
                 save_json(
                     {
-                        "target_support_files": evaluation.support_files,
-                        "target_query_files": evaluation.query_files,
+                        "target_support_splits": evaluation.support_splits,
+                        "target_support_repeats": method_config.evaluation.target_support_repeats,
                         "target_support_labels_used_for_adaptation": method != "supervised",
                         "target_query_labels_used_for_adaptation_or_model_selection": False,
                         "best_checkpoint": str(training.checkpoint_path.resolve()),
@@ -419,6 +430,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--lambda-general-prediction", type=float, default=None)
     parser.add_argument("--lambda-general-domain", type=float, default=None)
     parser.add_argument("--lambda-specific-domain", type=float, default=None)
+    parser.add_argument("--lambda-specific-contrastive", type=float, default=None)
     parser.add_argument("--lambda-reconstruction", type=float, default=None)
     parser.add_argument("--lambda-consistency", type=float, default=None)
     parser.add_argument("--lambda-orthogonal", type=float, default=None)

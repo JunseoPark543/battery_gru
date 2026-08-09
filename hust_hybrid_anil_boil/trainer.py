@@ -86,16 +86,27 @@ class HybridTrainer:
         self.seed = seed
         if any(sample.protocol == held_out_protocol for sample in self.all_source_samples):
             raise RuntimeError("held-out target protocol leaked into the source trainer")
-        self.source_protocols = sorted(
+        self.available_source_protocols = sorted(
             {sample.protocol for sample in self.all_source_samples},
             key=protocol_sort_key,
         )
-        if len(self.source_protocols) < 2:
+        if len(self.available_source_protocols) < 2:
             raise ValueError("hybrid meta-learning requires at least two source protocols")
+        (
+            self.train_samples,
+            self.validation_samples,
+            self.representation_validation_samples,
+            self.meta_validation_protocols,
+        ) = self._split_source_validation()
+        self.source_protocols = sorted(
+            {sample.protocol for sample in self.train_samples},
+            key=protocol_sort_key,
+        )
+        if len(self.source_protocols) < 2:
+            raise ValueError("validation split left fewer than two training protocols")
         self.protocol_to_index = {
             protocol: index for index, protocol in enumerate(self.source_protocols)
         }
-        self.train_samples, self.validation_samples = self._split_source_validation()
         self.normalizer = InputNormalizer.fit(
             self.train_samples, config.data.normalization_epsilon
         )
@@ -148,8 +159,13 @@ class HybridTrainer:
                     "splitting it would duplicate the same target"
                 ),
                 "training_files": [sample.file_name for sample in self.train_samples],
+                "validation_strategy": self.config.train.validation_strategy,
+                "meta_validation_protocols": self.meta_validation_protocols,
                 "source_validation_files": [
                     sample.file_name for sample in self.validation_samples
+                ],
+                "representation_validation_files": [
+                    sample.file_name for sample in self.representation_validation_samples
                 ],
                 "normalization_fit_files": [
                     sample.file_name for sample in self.train_samples
@@ -160,15 +176,54 @@ class HybridTrainer:
         )
         save_json(parameter_policy(self.model, self.method), self.run_dir / "inner_policy.json")
 
-    def _split_source_validation(self) -> tuple[list[CellSample], list[CellSample]]:
+    def _split_source_validation(
+        self,
+    ) -> tuple[list[CellSample], list[CellSample], list[CellSample], list[str]]:
         training: list[CellSample] = []
         validation: list[CellSample] = []
+        representation_validation: list[CellSample] = []
         count = self.config.train.validation_cells_per_protocol
         required_training = (
             self.config.train.support_cells_per_task
             + self.config.train.query_cells_per_task
         )
-        for protocol in self.source_protocols:
+        if self.config.train.validation_strategy == "held_out_source_protocol":
+            held_out_key = protocol_sort_key(self.held_out_protocol)
+            validation_index = (self.seed + held_out_key) % len(self.available_source_protocols)
+            meta_validation = self.available_source_protocols[validation_index]
+            validation = [
+                sample
+                for sample in self.all_source_samples
+                if sample.protocol == meta_validation
+            ]
+            if len(validation) <= self.config.train.validation_support_cells:
+                raise ValueError(
+                    f"{meta_validation}: not enough cells for validation support/query"
+                )
+            domain_count = self.config.train.domain_validation_cells_per_protocol
+            for protocol in self.available_source_protocols:
+                if protocol == meta_validation:
+                    continue
+                group = sorted(
+                    (sample for sample in self.all_source_samples if sample.protocol == protocol),
+                    key=lambda sample: (sample.replicate, sample.file_name),
+                )
+                if len(group) - domain_count < required_training:
+                    raise ValueError(
+                        f"{protocol}: cannot reserve {domain_count} representation-validation "
+                        f"cells and retain {required_training} training cells"
+                    )
+                offset = (self.seed + held_out_key + protocol_sort_key(protocol)) % len(group)
+                indices = {(offset + index) % len(group) for index in range(domain_count)}
+                representation_validation.extend(
+                    sample for index, sample in enumerate(group) if index in indices
+                )
+                training.extend(
+                    sample for index, sample in enumerate(group) if index not in indices
+                )
+            return training, validation, representation_validation, [meta_validation]
+
+        for protocol in self.available_source_protocols:
             group = sorted(
                 (sample for sample in self.all_source_samples if sample.protocol == protocol),
                 key=lambda sample: (sample.replicate, sample.file_name),
@@ -186,7 +241,7 @@ class HybridTrainer:
             training.extend(
                 sample for index, sample in enumerate(group) if index not in validation_indices
             )
-        return training, validation
+        return training, validation, list(validation), []
 
     def batch(self, samples: Sequence[CellSample]) -> tuple[Tensor, Tensor, Tensor]:
         if not samples:
@@ -224,9 +279,16 @@ class HybridTrainer:
 
     def _grl_strength(self, iteration: int) -> float:
         progress = iteration / max(1, self.config.train.iterations)
-        return self.config.loss.grl_max_strength * (
+        return self._auxiliary_scale(iteration) * self.config.loss.grl_max_strength * (
             2.0 / (1.0 + math.exp(-10.0 * progress)) - 1.0
         )
+
+    def _auxiliary_scale(self, iteration: int) -> float:
+        warmup = self.config.train.prediction_warmup_iterations
+        if iteration <= warmup:
+            return 0.0
+        ramp = self.config.train.auxiliary_ramp_iterations
+        return min(1.0, (iteration - warmup) / max(1, ramp))
 
     def _sample_episode(self, protocol: str) -> tuple[list[CellSample], list[CellSample]]:
         group = [sample for sample in self.train_samples if sample.protocol == protocol]
@@ -256,7 +318,14 @@ class HybridTrainer:
             waveforms, scalars, targets = self.batch(samples)
             waveforms, scalars = self._augment(waveforms, scalars)
             output = self.model(waveforms, scalars, grl_strength=self._grl_strength(iteration))
-            loss = outer_objective(output, targets, domains, self.config.loss, self.config.ablation)
+            loss = outer_objective(
+                output,
+                targets,
+                domains,
+                self.config.loss,
+                self.config.ablation,
+                auxiliary_scale=self._auxiliary_scale(iteration),
+            )
             return loss, {"support_loss": 0.0}
 
         task_count = min(self.config.train.tasks_per_iteration, len(self.source_protocols))
@@ -308,7 +377,12 @@ class HybridTrainer:
         targets = torch.cat(target_batches)
         domains = torch.cat(domain_batches)
         loss = outer_objective(
-            combined, targets, domains, self.config.loss, self.config.ablation
+            combined,
+            targets,
+            domains,
+            self.config.loss,
+            self.config.ablation,
+            auxiliary_scale=self._auxiliary_scale(iteration),
         )
         diagnostics = {
             "support_loss": float(
@@ -325,19 +399,37 @@ class HybridTrainer:
         self.model.eval()
         predictions: list[Tensor] = []
         targets: list[Tensor] = []
-        general_correct = 0
-        specific_correct = 0
-        count = 0
         with torch.enable_grad():
-            for protocol in self.source_protocols:
+            if self.config.train.validation_strategy == "held_out_source_protocol":
+                validation_groups = [
+                    (self.meta_validation_protocols[0], self.validation_samples)
+                ]
+            else:
+                validation_groups = [
+                    (
+                        protocol,
+                        [
+                            sample
+                            for sample in self.validation_samples
+                            if sample.protocol == protocol
+                        ],
+                    )
+                    for protocol in self.source_protocols
+                ]
+            for protocol, raw_group in validation_groups:
                 group = sorted(
-                    (sample for sample in self.validation_samples if sample.protocol == protocol),
+                    raw_group,
                     key=lambda sample: (sample.replicate, sample.file_name),
                 )
-                support = group[:1]
-                query = group[1:]
+                support_count = (
+                    self.config.train.validation_support_cells
+                    if self.config.train.validation_strategy == "held_out_source_protocol"
+                    else 1
+                )
+                support = group[:support_count]
+                query = group[support_count:]
                 if not query:
-                    raise ValueError(f"{protocol}: source validation needs at least two cells")
+                    raise ValueError(f"{protocol}: source validation has no query cells")
                 support_waveforms, support_scalars, support_targets = self.batch(support)
                 query_waveforms, query_scalars, query_targets = self.batch(query)
                 adapted = adapt_task(
@@ -363,28 +455,45 @@ class HybridTrainer:
                 )
                 predictions.append(output.prediction.detach())
                 targets.append(query_targets.detach())
-                domain_index = self.protocol_to_index[protocol]
-                general_correct += int(
-                    output.general_domain_logits.argmax(dim=-1).eq(domain_index).sum().detach().cpu()
-                )
-                if output.specific_domain_logits is not None:
-                    specific_correct += int(
-                        output.specific_domain_logits.argmax(dim=-1).eq(domain_index).sum().detach().cpu()
-                    )
-                count += len(query)
         prediction = torch.cat(predictions)
         target = torch.cat(targets)
         score = float(torch.mean(torch.abs(prediction - target)).cpu())
-        metrics = {
-            "general_domain_accuracy": general_correct / max(1, count),
-            "specific_domain_accuracy": (
-                specific_correct / max(1, count)
-                if self.config.ablation.use_specific_domain_classifier
-                else 0.0
-            ),
-        }
+        metrics = self._representation_domain_accuracy()
         self.model.train()
         return score, metrics
+
+    def _representation_domain_accuracy(self) -> dict[str, float]:
+        samples = self.representation_validation_samples
+        if not samples:
+            return {"general_domain_accuracy": 0.0, "specific_domain_accuracy": 0.0}
+        if any(sample.protocol not in self.protocol_to_index for sample in samples):
+            raise RuntimeError("representation validation contains an unseen protocol")
+        waveforms, scalars, _ = self.batch(samples)
+        domain = torch.as_tensor(
+            [self.protocol_to_index[sample.protocol] for sample in samples],
+            dtype=torch.long,
+            device=self.device,
+        )
+        with torch.no_grad():
+            output = self.model(waveforms, scalars, grl_strength=0.0)
+        general = float(
+            output.general_domain_logits.argmax(dim=-1).eq(domain).float().mean().cpu()
+        )
+        specific = (
+            float(
+                output.specific_domain_logits.argmax(dim=-1)
+                .eq(domain)
+                .float()
+                .mean()
+                .cpu()
+            )
+            if output.specific_domain_logits is not None
+            else 0.0
+        )
+        return {
+            "general_domain_accuracy": general,
+            "specific_domain_accuracy": specific,
+        }
 
     def _checkpoint_payload(self, iteration: int) -> dict[str, Any]:
         return {
@@ -396,6 +505,10 @@ class HybridTrainer:
             "source_protocols": self.source_protocols,
             "training_files": [sample.file_name for sample in self.train_samples],
             "validation_files": [sample.file_name for sample in self.validation_samples],
+            "representation_validation_files": [
+                sample.file_name for sample in self.representation_validation_samples
+            ],
+            "meta_validation_protocols": self.meta_validation_protocols,
             "seed": self.seed,
             "model_state": self.model.state_dict(),
             "optimizer_state": self.optimizer.state_dict(),
@@ -436,6 +549,14 @@ class HybridTrainer:
             raise ValueError("checkpoint training split does not match")
         if payload["validation_files"] != [sample.file_name for sample in self.validation_samples]:
             raise ValueError("checkpoint validation split does not match")
+        if "representation_validation_files" in payload and payload[
+            "representation_validation_files"
+        ] != [sample.file_name for sample in self.representation_validation_samples]:
+            raise ValueError("checkpoint representation-validation split does not match")
+        if "meta_validation_protocols" in payload and payload[
+            "meta_validation_protocols"
+        ] != self.meta_validation_protocols:
+            raise ValueError("checkpoint meta-validation protocol does not match")
         if payload["normalizer"] != self.normalizer.state_dict():
             raise ValueError("checkpoint input normalization does not match")
         if payload["parameter_policy"] != parameter_policy(self.model, self.method):
@@ -499,6 +620,7 @@ class HybridTrainer:
                 "L_GY": float(losses.general_prediction.detach().cpu()),
                 "L_G": float(losses.general_domain.detach().cpu()),
                 "L_S": float(losses.specific_domain.detach().cpu()),
+                "L_SC": float(losses.specific_contrastive.detach().cpu()),
                 "L_R": float(losses.reconstruction.detach().cpu()),
                 "L_C": float(losses.consistency.detach().cpu()),
                 "L_O": float(losses.orthogonal.detach().cpu()),
@@ -508,6 +630,7 @@ class HybridTrainer:
                 "mean_absolute_specific_residual": float(losses.mean_absolute_residual.detach().cpu()),
                 "outer_gradient_norm": gradient_norm,
                 "grl_strength": self._grl_strength(iteration),
+                "auxiliary_scale": self._auxiliary_scale(iteration),
                 "source_validation_mae_cycles": validation_score,
                 "source_validation_general_domain_accuracy": domain_metrics.get("general_domain_accuracy"),
                 "source_validation_specific_domain_accuracy": domain_metrics.get("specific_domain_accuracy"),
@@ -522,7 +645,7 @@ class HybridTrainer:
             if iteration % self.config.train.log_interval == 0 or should_evaluate:
                 LOGGER.info(
                     "method=%s fold=%s iter=%d/%d total=%.6g query=%.6g "
-                    "L_GY=%.6g L_G=%.6g L_S=%.6g L_R=%.6g L_C=%.6g "
+                    "L_GY=%.6g L_G=%.6g L_S=%.6g L_SC=%.6g L_R=%.6g L_C=%.6g "
                     "L_O=%.6g L_delta=%.6g val_mae=%s best=%.3f@%d stale=%d",
                     self.method,
                     self.held_out_protocol,
@@ -533,6 +656,7 @@ class HybridTrainer:
                     row["L_GY"],
                     row["L_G"],
                     row["L_S"],
+                    row["L_SC"],
                     row["L_R"],
                     row["L_C"],
                     row["L_O"],
@@ -567,6 +691,8 @@ class HybridTrainer:
                 "method": self.method,
                 "held_out_protocol": self.held_out_protocol,
                 "target_protocol_used_for_training_or_checkpoint_selection": False,
+                "validation_strategy": self.config.train.validation_strategy,
+                "meta_validation_protocols": self.meta_validation_protocols,
                 "auxiliary_loss_data": "post-adaptation query cells from source protocols only",
                 "consistency_pairs": "different source protocols with similar RUL/500 state",
                 "label_normalization": "none; raw RUL cycles",

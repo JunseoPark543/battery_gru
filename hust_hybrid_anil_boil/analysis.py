@@ -19,7 +19,10 @@ def save_training_diagnostics(history: list[dict[str, Any]], path: str | Path) -
 
     frame = pd.DataFrame(history)
     figure, axes = plt.subplots(2, 1, figsize=(11, 8), sharex=True)
-    for column in ("total_loss", "query_loss", "L_GY", "L_G", "L_S", "L_R", "L_C", "L_O", "L_delta"):
+    for column in (
+        "total_loss", "query_loss", "L_GY", "L_G", "L_S", "L_SC",
+        "L_R", "L_C", "L_O", "L_delta",
+    ):
         if column in frame:
             axes[0].plot(frame.iteration, frame[column], label=column, alpha=0.75)
     axes[0].set_yscale("symlog", linthresh=1.0e-5)
@@ -50,7 +53,20 @@ def save_adaptation_curve(metrics: pd.DataFrame, path: str | Path, title: str) -
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    ordered = metrics.sort_values("adaptation_step")
+    ordered = (
+        metrics.groupby("adaptation_step", as_index=False)
+        .agg(
+            mae_cycles=("mae_cycles", "mean"),
+            rmse_cycles=("rmse_cycles", "mean"),
+            general_representation_cosine_distance=(
+                "general_representation_cosine_distance", "mean"
+            ),
+            specific_representation_cosine_distance=(
+                "specific_representation_cosine_distance", "mean"
+            ),
+        )
+        .sort_values("adaptation_step")
+    )
     figure, axes = plt.subplots(1, 2, figsize=(12, 4.8))
     axes[0].plot(ordered.adaptation_step, ordered.mae_cycles, marker="o", label="MAE")
     axes[0].plot(ordered.adaptation_step, ordered.rmse_cycles, marker="s", label="RMSE")
@@ -178,4 +194,3 @@ def save_method_comparison_figure(table: pd.DataFrame, path: str | Path) -> None
     destination.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(destination, dpi=180)
     plt.close(figure)
-

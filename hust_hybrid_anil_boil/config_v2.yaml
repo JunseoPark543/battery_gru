@@ -53,25 +53,25 @@ model:
   domain_hidden: 64
   reconstruction_hidden: 96
   rul_output_scale_cycles: 500.0
-  residual_limit_cycles: 500.0
+  residual_limit_cycles: 750.0
 
 loss:
   rul_scale_cycles: 500.0
   lambda_total_prediction: 1.0
-  lambda_general_prediction: 0.5
-  lambda_general_domain: 0.05
-  lambda_specific_domain: 0.05
-  lambda_specific_contrastive: 0.0
-  lambda_reconstruction: 0.01
-  lambda_consistency: 0.01
+  lambda_general_prediction: 0.75
+  lambda_general_domain: 0.01
+  lambda_specific_domain: 0.02
+  lambda_specific_contrastive: 0.02
+  lambda_reconstruction: 0.005
+  lambda_consistency: 0.005
   lambda_orthogonal: 0.01
-  lambda_residual: 0.001
-  inner_general_prediction_beta: 0.0
+  lambda_residual: 0.0001
+  inner_general_prediction_beta: 0.25
   consistency_sigma: 0.15
   specific_contrastive_temperature: 0.10
-  domain_label_smoothing: 0.0
-  orthogonality_reduction: mean
-  grl_max_strength: 1.0
+  domain_label_smoothing: 0.05
+  orthogonality_reduction: sum
+  grl_max_strength: 0.5
 
 ablation:
   use_grl: true
@@ -85,43 +85,43 @@ ablation:
 
 augmentation:
   enabled: true
-  waveform_gaussian_std: 0.01
-  scalar_gaussian_std: 0.02
-  profile_channel_mask_probability: 0.03
-  cycle_mask_probability: 0.03
+  waveform_gaussian_std: 0.005
+  scalar_gaussian_std: 0.01
+  profile_channel_mask_probability: 0.01
+  cycle_mask_probability: 0.01
 
 train:
-  iterations: 1500
+  iterations: 1800
   validation_cells_per_protocol: 2
-  validation_strategy: within_protocol_cells
+  validation_strategy: held_out_source_protocol
   validation_support_cells: 2
   domain_validation_cells_per_protocol: 1
   support_cells_per_task: 2
   query_cells_per_task: 2
-  tasks_per_iteration: 4
+  tasks_per_iteration: 8
   supervised_cells_per_domain: 4
-  inner_steps: 1
-  inner_lr_general_head: 0.01
-  inner_lr_specific_encoder: 0.01
+  inner_steps: 5
+  inner_lr_general_head: 0.02
+  inner_lr_specific_encoder: 0.02
   inner_lr_other: 0.01
-  outer_lr: 0.001
+  outer_lr: 0.0005
   weight_decay: 0.0001
   first_order: true
   gradient_clip_norm: 5.0
   evaluation_interval: 25
   checkpoint_interval: 100
-  early_stopping_patience_evaluations: 12
+  early_stopping_patience_evaluations: 16
   log_interval: 10
-  validation_adaptation_steps: 1
-  prediction_warmup_iterations: 0
-  auxiliary_ramp_iterations: 1
+  validation_adaptation_steps: 5
+  prediction_warmup_iterations: 100
+  auxiliary_ramp_iterations: 200
 
 evaluation:
   held_out_protocols: all
   target_support_cells: 2
-  target_support_repeats: 1
+  target_support_repeats: 4
   adaptation_steps: [0, 1, 2, 5, 10]
-  primary_adaptation_step: 1
+  primary_adaptation_step: 5
   clip_negative_rul: true
   residual_ratio_warning: 0.5
 
