@@ -1,0 +1,63 @@
+seed: 42
+device: auto
+
+data:
+  hust_dir: data/HUST
+  label_path: data/Life labels/HUST_labels.json
+  eol_threshold: 0.8
+  history_lengths: [100]
+  # null = cycle 101 through each target cell's final observed cycle.
+  max_forecast_cycle: null
+  expected_protocol_count: 10
+
+model:
+  input_size: 3
+  features: [soh, voltage_mean, current_mean]
+  voltage_normalization: support_zscore
+  current_normalization: support_zscore
+  hidden_size: 64
+  num_layers: 1
+  dropout: 0.0
+  teacher_forcing_ratio: 0.5
+
+maml:
+  algorithm: maml
+  full_maml: true
+  inner_steps: 1
+  robust_path_steps: null
+  robust_path_worst_weight: 0.0
+  robust_path_dispersion_weight: 0.0
+  inner_lr: 0.05
+  inner_batch_size: 64
+  outer_lr: 0.001
+  meta_iterations: 2300
+  gradient_clip_norm: 5.0
+
+weights:
+  method: mmd_qp
+  kernel: rbf
+  sigma: median
+  qp_solver_primary: OSQP
+  qp_solver_fallback: SCS
+  diagonal_jitter: 1.0e-8
+  recompute_every_iteration: true
+  detach_alpha: true
+
+adaptation:
+  fast_steps: [1, 3, 5, 10, 15, 20]
+  full_max_steps: 200
+  full_patience: 20
+  learning_rate: 0.05
+
+logging:
+  log_interval: 10
+  checkpoint_interval: 100
+  save_alpha_interval: 10
+
+evaluation:
+  primary_adaptation: full
+  save_per_cycle_predictions: true
+
+# Recommended exact analogue of CALCE same_family: other replicates in the
+# target cell's HUST protocol only.
+source_mode: same_protocol
