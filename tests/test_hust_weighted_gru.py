@@ -16,9 +16,9 @@ from hust_weighted_gru.data import (
 )
 
 
-def _write_cell(path: Path, final_cycle: int = 103) -> None:
+def _write_cell(path: Path, final_cycle: int = 103, first_cycle: int = 1) -> None:
     records = []
-    for cycle in range(1, final_cycle + 1):
+    for cycle in range(first_cycle, final_cycle + 1):
         records.append(
             {
                 "cycle_number": cycle,
@@ -84,6 +84,19 @@ def test_same_protocol_excludes_target_and_other_protocol() -> None:
     ) == ["HUST_2-1.pkl"]
 
 
+def test_preprocess_fills_missing_leading_cycle_without_shifting_axis(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "HUST_7-5.pkl"
+    _write_cell(source, first_cycle=2)
+    cell = preprocess_cell(load_hust_pickle(source), true_eol_cycle=103)
+    assert np.array_equal(cell.cycles, np.arange(1, 104))
+    assert bool(cell.is_interpolated[0]) is True
+    assert cell.capacities_ah[0] == pytest.approx(cell.capacities_ah[1])
+    assert cell.mean_voltage_v[0] == pytest.approx(cell.mean_voltage_v[1])
+    assert cell.mean_current_a[0] == pytest.approx(cell.mean_current_a[1])
+
+
 def test_labels_example_uses_filename_mapping(tmp_path: Path) -> None:
     labels = tmp_path / "labels.json"
     labels.write_text(json.dumps({"HUST_1-1": 1200}), encoding="utf-8")
@@ -91,4 +104,3 @@ def test_labels_example_uses_filename_mapping(tmp_path: Path) -> None:
     from hust_weighted_gru.data import load_labels
 
     assert load_labels(labels) == {"HUST_1-1.pkl": 1200}
-

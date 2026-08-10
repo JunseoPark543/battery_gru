@@ -213,9 +213,18 @@ def preprocess_cell(
             currents[cycle] = current
     if not observed_cycles:
         raise ValueError(f"{raw.file_name}: no cycle records could be parsed")
-    if 1 not in observed_cycles:
-        raise ValueError(
-            f"{raw.file_name}: cycle 1 is required so L=100 aligns with cycles 1..100"
+    first_observed_cycle = min(observed_cycles)
+    if first_observed_cycle > 1:
+        # A few HUST cells omit one or more leading records even though their
+        # life labels and the rest of the dataset use absolute cycle numbers.
+        # Keep the common 1..N axis: pandas' bidirectional interpolation below
+        # fills this boundary gap with the earliest finite observation.  The
+        # filled positions remain explicitly marked in ``is_interpolated``.
+        log.warning(
+            "%s: leading cycle(s) 1..%d are absent; filling them from the "
+            "earliest finite per-signal observation",
+            raw.file_name,
+            first_observed_cycle - 1,
         )
     last_cycle = max(observed_cycles)
     if last_cycle <= 100:
@@ -390,4 +399,3 @@ def protocol_counts(cells: Sequence[FullCellTrajectory]) -> dict[str, int]:
     for cell in cells:
         counts[cell.family] = counts.get(cell.family, 0) + 1
     return dict(sorted(counts.items(), key=lambda item: _protocol_number(item[0])))
-

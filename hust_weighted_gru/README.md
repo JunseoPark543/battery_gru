@@ -19,6 +19,9 @@ SOH는 각 cycle의 마지막 유효 `discharge_capacity_in_Ah`를 nominal capac
 나눕니다. Voltage/current는 각 cycle에 저장된 전체 샘플의 유효값 평균입니다.
 Voltage/current z-score의 평균과 표준편차는 각 cell의 첫 100 cycle에서만
 계산하므로 target 미래 정보는 학습이나 adaptation에 들어가지 않습니다.
+중간 누락 cycle은 cycle 축 선형 보간하고, cycle 1 이전 쪽의 선두 레코드가
+누락된 셀은 가장 이른 유효값으로 경계를 채운 뒤 해당 cycle을
+`is_interpolated=true`로 기록합니다.
 
 주의: current는 CALCE 설정과 동일하게 **부호를 유지한 whole-cycle 평균**입니다.
 한 cycle 안에 charge와 discharge가 모두 있으면 양수/음수가 일부 상쇄될 수
@@ -119,4 +122,3 @@ outputs/hust_weighted_gru/runs/
 - `predictions/target_*_prediction.csv`: cycle별 실제/예측 SOH
 - `weights/final_alpha.csv`: target-aware source 가중치
 - `config_resolved.yaml`, `run_manifest.json`: 완전히 해석된 설정과 실행 정보
-
