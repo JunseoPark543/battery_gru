@@ -1,0 +1,18 @@
+{
+  "method": "General-ANIL + Specific-BOIL",
+  "deployment_step_selection": "support_loo",
+  "selected_step_distribution": {
+    "0": 2,
+    "5": 2
+  },
+  "mean_selected_adaptation_step": 2.5,
+  "general_domain_accuracy_source_validation": 0.25,
+  "specific_domain_accuracy_source_validation": 0.125,
+  "general_representation_cosine_change": 1.4901161637936866e-08,
+  "specific_representation_cosine_change": 0.0011328831703089988,
+  "mean_absolute_delta_y_S": 13.990712642669678,
+  "y_G_only_mae_cycles": 384.4777119954427,
+  "final_mae_cycles": 388.86127217610675,
+  "diagnostic_best_step_is_oracle_only": true,
+  "target_query_labels_used_for_step_selection": false
+}

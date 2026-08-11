@@ -1,0 +1,2 @@
+file_name,cell_id,protocol,replicate,nominal_capacity_Ah,raw_cycle_count,processed_cycle_count,interpolated_cycle_count,first_cycle,last_cycle,true_eol_cycle,soh_at_true_eol
+HUST_1-1.pkl,HUST_1-1,protocol_1,1,1.1,1504,1504,0,1,1504,1542,

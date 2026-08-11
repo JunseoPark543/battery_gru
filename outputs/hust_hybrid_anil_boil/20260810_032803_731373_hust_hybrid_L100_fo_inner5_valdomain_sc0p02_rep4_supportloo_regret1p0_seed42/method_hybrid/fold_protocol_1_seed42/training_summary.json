@@ -1,0 +1,18 @@
+{
+  "method": "hybrid",
+  "held_out_protocol": "protocol_1",
+  "target_protocol_used_for_training_or_checkpoint_selection": false,
+  "validation_strategy": "held_out_source_protocol",
+  "meta_validation_protocols": [
+    "protocol_9"
+  ],
+  "validation_support_repeats": 4,
+  "auxiliary_loss_data": "post-adaptation query cells from source protocols only",
+  "consistency_pairs": "different source protocols with similar RUL/500 state",
+  "label_normalization": "none; raw RUL cycles",
+  "best_iteration": 100,
+  "best_source_validation_mae_cycles": 153.3806610107422,
+  "stopped_iteration": 500,
+  "general_domain_accuracy": 0.25,
+  "specific_domain_accuracy": 0.125
+}

@@ -1,0 +1,8 @@
+file_name,cell_id,protocol,replicate,nominal_capacity_Ah,raw_cycle_count,processed_cycle_count,interpolated_cycle_count,first_cycle,last_cycle,true_eol_cycle,soh_at_true_eol
+HUST_1-2.pkl,HUST_1-2,protocol_1,2,1.1,2678,2678,0,1,2678,2755,
+HUST_1-3.pkl,HUST_1-3,protocol_1,3,1.1,1858,1858,0,1,1858,1911,
+HUST_1-4.pkl,HUST_1-4,protocol_1,4,1.1,1500,1500,0,1,1500,1549,
+HUST_1-5.pkl,HUST_1-5,protocol_1,5,1.1,1971,1971,0,1,1971,2033,
+HUST_1-6.pkl,HUST_1-6,protocol_1,6,1.1,1143,1143,0,1,1143,1179,
+HUST_1-7.pkl,HUST_1-7,protocol_1,7,1.1,1678,1678,0,1,1678,1726,
+HUST_1-8.pkl,HUST_1-8,protocol_1,8,1.1,2285,2285,0,1,2285,2359,

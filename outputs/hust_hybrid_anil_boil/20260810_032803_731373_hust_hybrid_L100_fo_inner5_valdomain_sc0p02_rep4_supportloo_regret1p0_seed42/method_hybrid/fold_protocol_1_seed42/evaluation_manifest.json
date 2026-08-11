@@ -1,0 +1,199 @@
+{
+  "target_support_splits": [
+    {
+      "repeat": 0,
+      "support_files": [
+        "HUST_1-3.pkl",
+        "HUST_1-4.pkl"
+      ],
+      "query_files": [
+        "HUST_1-5.pkl",
+        "HUST_1-6.pkl",
+        "HUST_1-7.pkl",
+        "HUST_1-8.pkl",
+        "HUST_1-1.pkl",
+        "HUST_1-2.pkl"
+      ],
+      "deployment_step_selection": "support_loo",
+      "selected_adaptation_step": 5,
+      "support_loo_mae_by_step": {
+        "0": 281.1025390625,
+        "1": 268.15106201171875,
+        "2": 256.23736572265625,
+        "5": 225.22552490234375
+      }
+    },
+    {
+      "repeat": 1,
+      "support_files": [
+        "HUST_1-5.pkl",
+        "HUST_1-6.pkl"
+      ],
+      "query_files": [
+        "HUST_1-7.pkl",
+        "HUST_1-8.pkl",
+        "HUST_1-1.pkl",
+        "HUST_1-2.pkl",
+        "HUST_1-3.pkl",
+        "HUST_1-4.pkl"
+      ],
+      "deployment_step_selection": "support_loo",
+      "selected_adaptation_step": 0,
+      "support_loo_mae_by_step": {
+        "0": 518.244873046875,
+        "1": 535.221923828125,
+        "2": 548.8363647460938,
+        "5": 579.83740234375
+      }
+    },
+    {
+      "repeat": 2,
+      "support_files": [
+        "HUST_1-7.pkl",
+        "HUST_1-8.pkl"
+      ],
+      "query_files": [
+        "HUST_1-1.pkl",
+        "HUST_1-2.pkl",
+        "HUST_1-3.pkl",
+        "HUST_1-4.pkl",
+        "HUST_1-5.pkl",
+        "HUST_1-6.pkl"
+      ],
+      "deployment_step_selection": "support_loo",
+      "selected_adaptation_step": 5,
+      "support_loo_mae_by_step": {
+        "0": 297.5552978515625,
+        "1": 283.95123291015625,
+        "2": 271.39654541015625,
+        "5": 238.797607421875
+      }
+    },
+    {
+      "repeat": 3,
+      "support_files": [
+        "HUST_1-1.pkl",
+        "HUST_1-2.pkl"
+      ],
+      "query_files": [
+        "HUST_1-3.pkl",
+        "HUST_1-4.pkl",
+        "HUST_1-5.pkl",
+        "HUST_1-6.pkl",
+        "HUST_1-7.pkl",
+        "HUST_1-8.pkl"
+      ],
+      "deployment_step_selection": "support_loo",
+      "selected_adaptation_step": 0,
+      "support_loo_mae_by_step": {
+        "0": 438.0247802734375,
+        "1": 459.9591064453125,
+        "2": 480.19195556640625,
+        "5": 534.1756591796875
+      }
+    }
+  ],
+  "target_support_repeats": 4,
+  "deployment_step_selection": "support_loo",
+  "deployment_candidate_steps": [
+    0,
+    1,
+    2,
+    5
+  ],
+  "support_loo_min_improvement_cycles": 25.0,
+  "target_support_labels_used_for_adaptation": true,
+  "target_query_labels_used_for_adaptation_or_model_selection": false,
+  "best_checkpoint": "/home/JunseoPark/바탕화면/battery_gru/outputs/hust_hybrid_anil_boil/20260810_032803_731373_hust_hybrid_L100_fo_inner5_valdomain_sc0p02_rep4_supportloo_regret1p0_seed42/method_hybrid/fold_protocol_1_seed42/checkpoints/best.pt",
+  "normalizer": {
+    "profile_channels": [
+      "charge_voltage_v",
+      "charge_current_c_rate",
+      "charge_capacity_fraction",
+      "charge_power_vc",
+      "delta_voltage_from_cycle10",
+      "delta_current_from_cycle10",
+      "delta_capacity_from_cycle10",
+      "delta_power_from_cycle10"
+    ],
+    "scalar_features": [
+      "soh",
+      "charge_duration_h",
+      "discharge_duration_h",
+      "charge_voltage_mean_v",
+      "discharge_voltage_mean_v",
+      "charge_c_rate",
+      "discharge_c_rate",
+      "coulombic_efficiency",
+      "charge_energy_per_nominal_wh",
+      "discharge_energy_per_nominal_wh",
+      "delta_soh_from_cycle10",
+      "delta_charge_duration_from_cycle10_h",
+      "delta_discharge_duration_from_cycle10_h",
+      "rolling_soh_slope_10"
+    ],
+    "waveform_mean": [
+      3.468726634979248,
+      2.0189194679260254,
+      0.7968248128890991,
+      6.927886962890625,
+      0.0017260146560147405,
+      -0.044299520552158356,
+      0.005780830048024654,
+      -0.15864160656929016
+    ],
+    "waveform_std": [
+      0.1325690895318985,
+      1.945412039756775,
+      0.305168479681015,
+      6.6669206619262695,
+      0.01998870074748993,
+      0.296421617269516,
+      0.011721818707883358,
+      1.0676641464233398
+    ],
+    "scalar_mean": [
+      1.0945794582366943,
+      0.5492895245552063,
+      0.43644019961357117,
+      3.476377010345459,
+      3.0980050563812256,
+      2.002251625061035,
+      2.598008871078491,
+      1.009567141532898,
+      3.8076491355895996,
+      3.383589267730713,
+      -0.001229568850249052,
+      0.012329350225627422,
+      -0.000582861655857414,
+      -5.411771417129785e-05
+    ],
+    "scalar_std": [
+      0.01500889752060175,
+      0.028282510116696358,
+      0.08673611283302307,
+      0.011142048053443432,
+      0.036162231117486954,
+      0.08134917169809341,
+      0.5086920857429504,
+      0.0034419861622154713,
+      0.06233232840895653,
+      0.03615182265639305,
+      0.006495207082480192,
+      0.018330147489905357,
+      0.003251246875151992,
+      0.00037193347816355526
+    ]
+  },
+  "parameter_counts": {
+    "general_encoder": 238734,
+    "specific_encoder": 238734,
+    "general_head": 4225,
+    "specific_head": 4225,
+    "concat_head": 8321,
+    "general_domain_classifier": 4680,
+    "specific_domain_classifier": 4680,
+    "reconstruction_decoder": 25086,
+    "total": 528685
+  }
+}
