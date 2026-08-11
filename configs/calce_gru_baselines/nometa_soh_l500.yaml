@@ -18,12 +18,9 @@ training:
   batch_size: 64
   learning_rate: 0.001
   weight_decay: 0.0
-  # Identical to nometa_soh_l100.yaml so history length is the only setting change.
-  encoder_window: 50
-  forecast_horizon: 10
-  window_stride: 1
   validation_cycles: 20
-  teacher_forcing_ratio: 0.5
+  # Every variable-prefix future is decoded recursively during training.
+  teacher_forcing_ratio: 0.0
   gradient_clip_norm: 5.0
   early_stopping_patience: 30
   early_stopping_min_delta: 1.0e-7
@@ -31,4 +28,3 @@ training:
 logging:
   log_interval: 1
   checkpoint_interval: 1
-

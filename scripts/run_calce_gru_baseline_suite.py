@@ -16,9 +16,9 @@ import pandas as pd
 
 from battery_weighted_maml.cli import run_experiment
 from battery_weighted_maml.config import load_config
-from battery_weighted_maml.gru_baseline import (
-    load_gru_baseline_config,
-    run_gru_baseline,
+from battery_weighted_maml.recursive_gru_baseline import (
+    load_recursive_gru_config,
+    run_recursive_gru_baseline,
 )
 
 
@@ -47,7 +47,11 @@ EXPERIMENTS = {
 
 
 def _read_metrics(mode: str, run_dir: Path) -> dict[str, object]:
-    file_name = "gru_baseline_metrics.json" if mode == "nometa" else "full_metrics.json"
+    file_name = (
+        "gru_recursive_baseline_metrics.json"
+        if mode == "nometa"
+        else "full_metrics.json"
+    )
     source = run_dir / "metrics" / file_name
     if not source.is_file():
         raise FileNotFoundError(f"completed run has no metrics file: {source}")
@@ -146,9 +150,9 @@ def main() -> None:
     for name in selected:
         mode, config_path, history_length = EXPERIMENTS[name]
         if mode == "nometa":
-            config = load_gru_baseline_config(root / config_path)
+            config = load_recursive_gru_config(root / config_path)
             config.device = args.device
-            run_dir = run_gru_baseline(
+            run_dir = run_recursive_gru_baseline(
                 config,
                 target_name=args.target,
                 project_root=root,
