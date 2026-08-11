@@ -1,0 +1,74 @@
+{
+  "started_at_utc": "2026-08-11T08:59:38.363611+00:00",
+  "status": "completed",
+  "experiment": "plain_gru_encoder_decoder",
+  "weighted_meta_learning": false,
+  "target": "CALCE_CX2_37.pkl",
+  "history_length": 500,
+  "input_features": [
+    "soh"
+  ],
+  "device": "cuda",
+  "seed": 42,
+  "parameters": 25793,
+  "trainable_parameters": 25793,
+  "resolved_config": {
+    "seed": 42,
+    "device": "cuda",
+    "data": {
+      "calce_dir": "data/CALCE",
+      "label_path": "data/Life labels/CALCE_labels.json",
+      "history_length": 500,
+      "max_forecast_cycle": null,
+      "eol_threshold": 0.8
+    },
+    "model": {
+      "hidden_size": 64,
+      "num_layers": 1,
+      "dropout": 0.0
+    },
+    "training": {
+      "max_epochs": 300,
+      "batch_size": 64,
+      "learning_rate": 0.001,
+      "weight_decay": 0.0,
+      "encoder_window": 50,
+      "forecast_horizon": 10,
+      "window_stride": 1,
+      "validation_cycles": 20,
+      "teacher_forcing_ratio": 0.5,
+      "gradient_clip_norm": 5.0,
+      "early_stopping_patience": 30,
+      "early_stopping_min_delta": 1e-07
+    },
+    "logging": {
+      "log_interval": 1,
+      "checkpoint_interval": 1
+    }
+  },
+  "completed_at_utc": "2026-08-11T08:59:39.851178+00:00",
+  "last_epoch": 35,
+  "best_epoch": 5,
+  "best_validation_mse": 0.0006645707180723548,
+  "metrics": {
+    "mae": 0.09245099620330131,
+    "rmse": 0.11070039170678606,
+    "r2": -2.2033845772762715,
+    "r2_nan_reason": null,
+    "max_absolute_error": 0.21456800216583383,
+    "final_cycle_absolute_error": 0.21276680643676216,
+    "pre_eol_mae": 0.010870174429160802,
+    "post_eol_mae": 0.10552378508800131,
+    "prediction_point_count": 572,
+    "true_eol_cycle": 579,
+    "predicted_eol_cycle_discrete": 501.0,
+    "predicted_eol_cycle_interpolated": 500.2843236016242,
+    "true_rul": 79.0,
+    "predicted_rul": 1.0,
+    "signed_rul_error": -78.0,
+    "absolute_rul_error": 78.0,
+    "relative_absolute_rul_error": 0.9873417721518988,
+    "crossing_found": true,
+    "adaptation_mode": "gru_baseline"
+  }
+}
