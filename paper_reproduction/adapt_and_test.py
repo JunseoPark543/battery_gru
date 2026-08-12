@@ -213,15 +213,24 @@ def run_adaptation_trajectory(
     patience: int | None = None,
     capture_steps: Sequence[int] = (0, 1, 2, 3, 5, 10),
     query_diagnostics: bool = True,
+    checkpoint_selection: str = "support_recursive_validation",
 ) -> AdaptationTrajectory:
-    """Run one reproducible trajectory; query labels never affect its updates.
+    """Run one reproducible trajectory without query-label gradient leakage.
 
-    Deployment selection uses chronological support validation only. Query MAE
-    is calculated under ``torch.no_grad`` for explicitly labeled oracle
-    diagnostics and is never passed to ``backward`` or the optimizer.
+    The default selection uses chronological support validation. The isolated
+    paper protocol may use query MAE for early stopping, matching the paper's
+    acknowledged optimistic test-task bias. In either case query labels are
+    evaluated under ``torch.no_grad`` and never enter an optimizer update.
     """
     if max_steps < 0:
         raise ValueError("max_steps cannot be negative")
+    if checkpoint_selection not in {
+        "support_recursive_validation",
+        "paper_query_early_stopping",
+    }:
+        raise ValueError("unsupported adaptation checkpoint selection")
+    if checkpoint_selection == "paper_query_early_stopping" and not query_diagnostics:
+        raise ValueError("paper query early stopping requires query diagnostics")
     adapted = copy.deepcopy(meta_model).to(device)
     dataset = RecursivePairDataset(training_soh)
     loss_function = get_loss(
@@ -281,17 +290,6 @@ def run_adaptation_trajectory(
         validation_mae = _support_validation_mae(
             adapted, training_soh, validation_soh
         )
-        selection_value = (
-            validation_mae if validation_soh is not None else support_eval_value
-        )
-        if selection_value < deployment_best_mae - config.adaptation.complete_min_delta:
-            deployment_best_mae = selection_value
-            deployment_best_step = step
-            deployment_best_state = _clone_state(adapted)
-            stale = 0
-        elif step > 0:
-            stale += 1
-
         if query_diagnostics:
             query_metrics, forecast = _query_diagnostics(
                 adapted, task, config.data.history_length, config
@@ -308,6 +306,19 @@ def run_adaptation_trajectory(
                 "predicted_eol_cycle_last_hitting": None, "predicted_rul": None,
             }
             forecast = np.asarray([], dtype=float)
+
+        selection_value = (
+            float(query_metrics["mae"])
+            if checkpoint_selection == "paper_query_early_stopping"
+            else (validation_mae if validation_soh is not None else support_eval_value)
+        )
+        if selection_value < deployment_best_mae - config.adaptation.complete_min_delta:
+            deployment_best_mae = selection_value
+            deployment_best_step = step
+            deployment_best_state = _clone_state(adapted)
+            stale = 0
+        elif step > 0:
+            stale += 1
         if step in requested_captures:
             captured_states[step] = _clone_state(adapted)
             if forecast.size:
@@ -346,6 +357,8 @@ def run_adaptation_trajectory(
                 "predicted_eol": query_metrics["predicted_eol_cycle_last_hitting"],
                 "predicted_rul": query_metrics["predicted_rul"],
                 "oracle_query_selection": bool(query_diagnostics),
+                "checkpoint_selection": checkpoint_selection,
+                "checkpoint_selection_value": selection_value,
             }
         )
 
@@ -402,13 +415,7 @@ def run_adaptation_trajectory(
             bias_update,
             split_indices,
         )
-        latest_selection = float(
-            records[-1][
-                "support_validation_mae_fraction"
-                if validation_soh is not None
-                else "support_eval_loss"
-            ]
-        )
+        latest_selection = float(records[-1]["checkpoint_selection_value"])
         if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
             scheduler.step(latest_selection)
         elif scheduler is not None:
@@ -735,9 +742,19 @@ def adapt_and_evaluate_cell(
         metrics.append(row)
         logger.info("Meta-test %s %s metrics=%s", task.name, mode, row)
 
-    validation_length = _validation_length(config.data.history_length, config)
-    training_soh = support[:-validation_length]
-    validation_soh = support[-validation_length:]
+    paper_query_selection = (
+        config.adaptation.checkpoint_selection == "paper_query_early_stopping"
+    )
+    if paper_query_selection:
+        # The paper reports no validation split and explicitly acknowledges the
+        # optimistic bias introduced by fine-tuning and early stopping on the
+        # testing tasks. Keep this protocol isolated and clearly labeled.
+        training_soh = support
+        validation_soh = None
+    else:
+        validation_length = _validation_length(config.data.history_length, config)
+        training_soh = support[:-validation_length]
+        validation_soh = support[-validation_length:]
     complete_trajectory = run_adaptation_trajectory(
         meta_model,
         task,
@@ -751,7 +768,8 @@ def adapt_and_evaluate_cell(
         seed_offset=1000,
         patience=config.adaptation.complete_patience,
         capture_steps=(0, 1, 2, 3, 5, 10),
-        query_diagnostics=config.adaptation.oracle_diagnostics,
+        query_diagnostics=(config.adaptation.oracle_diagnostics or paper_query_selection),
+        checkpoint_selection=config.adaptation.checkpoint_selection,
     )
     complete_trajectory.captured_states[
         complete_trajectory.deployment_best_step
@@ -792,11 +810,16 @@ def adapt_and_evaluate_cell(
     deployment_model = model_from_state(
         meta_model, complete_trajectory.deployment_best_state, device
     )
+    selected_mode = (
+        "complete_paper_query_selected"
+        if paper_query_selection
+        else "complete_deployment_safe"
+    )
     deployment_metrics = _evaluate_one(
         deployment_model,
         task,
         config.data.history_length,
-        "complete_deployment_safe",
+        selected_mode,
         config,
         root,
         flat_output=flat_output,
@@ -804,23 +827,35 @@ def adapt_and_evaluate_cell(
     deployment_metrics.update(
         {
             "adaptation_best_step": complete_trajectory.deployment_best_step,
-            "support_validation_mae_fraction": complete_trajectory.deployment_best_mae,
-            "support_validation_mae_percent": 100.0 * complete_trajectory.deployment_best_mae,
-            "oracle_query_selection": False,
-            "checkpoint_selection": "support_recursive_validation",
+            "adaptation_selection_value": complete_trajectory.deployment_best_mae,
+            "support_validation_mae_fraction": (
+                float("nan")
+                if paper_query_selection
+                else complete_trajectory.deployment_best_mae
+            ),
+            "support_validation_mae_percent": (
+                float("nan")
+                if paper_query_selection
+                else 100.0 * complete_trajectory.deployment_best_mae
+            ),
+            "oracle_query_selection": paper_query_selection,
+            "query_used_for_gradient": False,
+            "query_used_for_checkpoint_selection": paper_query_selection,
+            "deployment_safe": not paper_query_selection,
+            "checkpoint_selection": config.adaptation.checkpoint_selection,
             "learning_rate": config.adaptation.resolved_complete_learning_rate(),
             "loss_reduction": config.adaptation.recursive_loss_reduction,
             "sampling_mode": config.adaptation.sampling_mode,
         }
     )
     _write_metrics(
-        adaptation_dir / "complete_deployment_safe_metrics.json",
+        adaptation_dir / f"{selected_mode}_metrics.json",
         deployment_metrics,
     )
     metrics.append(deployment_metrics)
 
     oracle_metrics: dict[str, object] | None = None
-    if config.adaptation.oracle_diagnostics:
+    if config.adaptation.oracle_diagnostics and not paper_query_selection:
         oracle_model = model_from_state(
             meta_model, complete_trajectory.oracle_best_state, device
         )

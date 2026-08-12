@@ -1,0 +1,5 @@
+history_length,cell,mode,mae_percent,rmse_percent,r2,rul_error_actual_minus_predicted,source
+500,CALCE_CX2_37.pkl,complete_paper_query_selected,0.603,0.837,0.986,5,Table 1
+500,CALCE_CX2_38.pkl,complete_paper_query_selected,1.156,1.564,0.992,-29,Table 1
+100,CALCE_CX2_37.pkl,complete_paper_query_selected,1.789,2.263,0.938,-113,Table 3
+100,CALCE_CX2_38.pkl,complete_paper_query_selected,2.268,3.382,0.970,-19,Table 3

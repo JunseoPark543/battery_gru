@@ -27,6 +27,55 @@ python -m pip install -e ".[paper]"
 The `paper` extra installs Optuna in addition to torch, higher, NumPy, pandas,
 Matplotlib, PyYAML, and tqdm.
 
+## Paper recursive L=500 and L=100 suite
+
+The dedicated configs under `paper_reproduction/configs/` reproduce the
+paper's recursive setting, independently of the stabilized default config:
+
+- SOH-only, one-layer GRU encoder-decoder, hidden size 64 (25,793 parameters)
+- fixed five training cells and two testing cells from the paper
+- full second-order unweighted MAML, one inner step, batch size 64, inner SGD
+  learning rate 0.05, and Adam outer optimization
+- predicted-input probability 0.5 during training and fully recursive rollout
+  at test time
+- maximum 500 meta epochs, complete adaptation at 0.05, fast snapshots at
+  steps 0/1/3/5, EOL 70%, and prediction through every remaining cell cycle
+
+Run Optuna TPE for each L and then train/evaluate both experiments:
+
+```bash
+python -m paper_reproduction.run_paper_recursive_suite \
+  --device cuda \
+  --optuna-trials 20
+```
+
+The paper says it uses Optuna TPE but does not publish the final outer learning
+rate, trial count, search range, loss type, or early-stopping patience. This
+command uses 20 trials per L, range `[1e-5, 1e-2]`, masked MSE, and patience 30;
+all are recorded in `suite_manifest.json`. To skip the expensive TPE search
+and explicitly fix the unreported outer learning rate:
+
+```bash
+python -m paper_reproduction.run_paper_recursive_suite \
+  --device cuda \
+  --outer-learning-rate 0.001
+```
+
+Results are written below `outputs/paper_recursive_reproduction/`. Each run
+contains both CX2_37 and CX2_38 predictions/figures. The suite directory adds
+`paper_recursive_results.csv`, `paper_recursive_comparison.csv`, and a PNG
+comparison against Tables 1 and 3.
+
+The paper reports 744 future points for CX2_37 at L=500, whereas the current
+local pickle/preprocessing produces 572. The code and hyperparameters can be
+aligned, but exact reported metrics require the authors' BatteryML-cleaned
+sequences. The paper also states that no validation set was used and notes the
+optimistic bias from fine-tuning/early stopping on test tasks. Accordingly,
+the dedicated suite labels its complete result
+`complete_paper_query_selected`; query labels select a checkpoint but never
+enter SGD gradients. The existing default config keeps the deployment-safe
+chronological support-validation policy.
+
 ## Training and meta-test
 
 From the repository root:

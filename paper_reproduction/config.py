@@ -62,7 +62,7 @@ class MAMLConfig:
     inner_batch_size: int = 64  # paper
     outer_learning_rate: float = 1.0e-3  # implementation choice
     query_batch_size: int = 1  # implementation choice; one full query per task
-    gradient_clip_norm: float = 5.0  # implementation choice
+    gradient_clip_norm: float | None = 5.0  # implementation choice
     early_stopping: bool = True  # paper
     early_stopping_patience: int = 30  # implementation choice
     early_stopping_min_delta: float = 1.0e-7  # implementation choice
@@ -171,7 +171,6 @@ class ExperimentConfig:
             "inner_batch_size": self.maml.inner_batch_size,
             "outer_learning_rate": self.maml.outer_learning_rate,
             "query_batch_size": self.maml.query_batch_size,
-            "gradient_clip_norm": self.maml.gradient_clip_norm,
             "early_stopping_patience": self.maml.early_stopping_patience,
             "fast_learning_rate": self.adaptation.resolved_fast_learning_rate(),
             "complete_learning_rate": self.adaptation.resolved_complete_learning_rate(),
@@ -181,6 +180,8 @@ class ExperimentConfig:
         }
         if any(value <= 0 for value in positive.values()):
             raise ValueError(f"these values must be positive: {positive}")
+        if self.maml.gradient_clip_norm is not None and self.maml.gradient_clip_norm <= 0:
+            raise ValueError("maml.gradient_clip_norm must be positive or null")
         if self.maml.early_stopping_min_delta < 0 or self.adaptation.complete_min_delta < 0:
             raise ValueError("early-stopping min_delta values cannot be negative")
         if sorted(set(self.adaptation.fast_steps)) != sorted(self.adaptation.fast_steps):
@@ -202,8 +203,11 @@ class ExperimentConfig:
             raise ValueError("adaptation.fast_sampling_mode is invalid")
         if adaptation.sampling_mode not in {"random", "length_stratified", "full_support"}:
             raise ValueError("adaptation.sampling_mode is invalid")
-        if adaptation.checkpoint_selection != "support_recursive_validation":
-            raise ValueError("only support_recursive_validation checkpoint selection is safe")
+        if adaptation.checkpoint_selection not in {
+            "support_recursive_validation",
+            "paper_query_early_stopping",
+        }:
+            raise ValueError("adaptation.checkpoint_selection is invalid")
         if adaptation.scheduler not in {"constant", "step", "plateau"}:
             raise ValueError("adaptation.scheduler must be constant, step, or plateau")
         if not 0.0 < adaptation.validation_ratio < 1.0:

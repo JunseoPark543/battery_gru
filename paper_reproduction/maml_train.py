@@ -401,10 +401,18 @@ def train_meta_model(
             # Unweighted arithmetic mean: every one of the five tasks contributes 1/5.
             meta_loss = torch.stack(task_query_losses).mean()
             meta_loss.backward()
-        grad_norm_tensor = torch.nn.utils.clip_grad_norm_(
-            model.parameters(), config.maml.gradient_clip_norm
-        )
-        grad_norm = float(grad_norm_tensor.detach().cpu())
+        if config.maml.gradient_clip_norm is None:
+            squared_norm = sum(
+                parameter.grad.detach().double().square().sum()
+                for parameter in model.parameters()
+                if parameter.grad is not None
+            )
+            grad_norm = float(torch.sqrt(squared_norm).cpu())
+        else:
+            grad_norm_tensor = torch.nn.utils.clip_grad_norm_(
+                model.parameters(), config.maml.gradient_clip_norm
+            )
+            grad_norm = float(grad_norm_tensor.detach().cpu())
         if not math.isfinite(grad_norm):
             raise FloatingPointError(f"non-finite outer gradient at epoch {epoch}")
         optimizer.step()
