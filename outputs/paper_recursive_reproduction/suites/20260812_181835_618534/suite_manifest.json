@@ -1,0 +1,57 @@
+{
+  "status": "completed",
+  "completed_at_utc": "2026-08-12T10:10:13.677516+00:00",
+  "paper_protocol": {
+    "prediction": "recursive_to_end_of_each_cell",
+    "train_cells": [
+      "CALCE_CX2_16.pkl",
+      "CALCE_CX2_33.pkl",
+      "CALCE_CX2_34.pkl",
+      "CALCE_CX2_35.pkl",
+      "CALCE_CX2_36.pkl"
+    ],
+    "test_cells": [
+      "CALCE_CX2_37.pkl",
+      "CALCE_CX2_38.pkl"
+    ],
+    "eol_threshold": 0.7,
+    "inner_steps": 1,
+    "inner_batch_size": 64,
+    "inner_learning_rate": 0.05,
+    "teacher_forcing_predicted_input_probability": 0.5,
+    "maximum_epochs": 500
+  },
+  "paper_unreported_reproduction_choices": {
+    "loss": "masked_mse",
+    "optuna_trial_count": 0,
+    "optuna_search_range": [
+      1e-05,
+      0.01
+    ],
+    "early_stopping_patience": 30,
+    "early_stopping_min_delta": 1e-07,
+    "complete_adaptation_min_delta": 1e-06
+  },
+  "comparability_warning": "The local CALCE preprocessing has 572 future points for CX2_37 at L=500, whereas the paper reports 744; exact numerical equality therefore requires the authors' BatteryML-cleaned sequences.",
+  "runs": [
+    {
+      "history_length": 500,
+      "outer_learning_rate": 0.001,
+      "outer_learning_rate_source": "cli_fixed",
+      "optuna_trials": 0,
+      "optuna_run": null,
+      "experiment_run": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/paper_recursive_reproduction/20260812_181836_235463_all_paper-recursive-L500-olr_L500_mi1_ilr0p05_olr0p001_ml-sb_all-tests_flr0p05_clr0p05_al-sb_sp-rnd_cpnone_sc-const_s42_c7bd8bd68",
+      "selected_config": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/paper_recursive_reproduction/suites/20260812_181835_618534/selected_configs/L500.yaml"
+    },
+    {
+      "history_length": 100,
+      "outer_learning_rate": 0.001,
+      "outer_learning_rate_source": "cli_fixed",
+      "optuna_trials": 0,
+      "optuna_run": null,
+      "experiment_run": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/paper_recursive_reproduction/20260812_185918_569476_all_paper-recursive-L100-olr_L100_mi1_ilr0p05_olr0p001_ml-sb_all-tests_flr0p05_clr0p05_al-sb_sp-rnd_cpnone_sc-const_s42_c1b3af202",
+      "selected_config": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/paper_recursive_reproduction/suites/20260812_181835_618534/selected_configs/L100.yaml"
+    }
+  ],
+  "comparison_csv": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/paper_recursive_reproduction/suites/20260812_181835_618534/paper_recursive_comparison.csv"
+}

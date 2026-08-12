@@ -1,0 +1,23 @@
+{
+  "mae": 0.08768384442443151,
+  "rmse": 0.10327785881234737,
+  "mae_percent": 8.768384442443152,
+  "rmse_percent": 10.327785881234737,
+  "r2": -0.351764399260889,
+  "point_count": 972,
+  "eol_threshold": 0.7,
+  "current_cycle": 100,
+  "actual_eol_cycle_last_hitting": 882,
+  "predicted_eol_cycle_last_hitting": 1072,
+  "actual_rul": 782,
+  "predicted_rul": 972,
+  "rul_error_actual_minus_predicted": -190,
+  "cell": "CALCE_CX2_37.pkl",
+  "mode": "fast_5_steps",
+  "adaptation_best_step": 5,
+  "adaptation_best_support_loss": 0.00802735798060894,
+  "oracle_query_selection": false,
+  "learning_rate": 0.05,
+  "loss_reduction": "sample_balanced",
+  "sampling_mode": "random"
+}

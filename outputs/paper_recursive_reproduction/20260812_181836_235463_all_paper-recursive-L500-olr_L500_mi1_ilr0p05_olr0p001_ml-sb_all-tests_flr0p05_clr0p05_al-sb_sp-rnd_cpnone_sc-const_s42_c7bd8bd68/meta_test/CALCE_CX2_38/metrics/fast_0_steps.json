@@ -1,0 +1,17 @@
+{
+  "mae": 0.5046018032651244,
+  "rmse": 0.5272846435824077,
+  "mae_percent": 50.460180326512436,
+  "rmse_percent": 52.72846435824077,
+  "r2": -10.006502472170322,
+  "point_count": 1079,
+  "eol_threshold": 0.7,
+  "current_cycle": 500,
+  "actual_eol_cycle_last_hitting": 878,
+  "predicted_eol_cycle_last_hitting": 500,
+  "actual_rul": 378,
+  "predicted_rul": 0,
+  "rul_error_actual_minus_predicted": 378,
+  "cell": "CALCE_CX2_38.pkl",
+  "mode": "fast_0_steps"
+}
