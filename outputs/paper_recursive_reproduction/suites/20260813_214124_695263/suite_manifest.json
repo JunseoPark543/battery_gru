@@ -1,0 +1,48 @@
+{
+  "status": "completed",
+  "completed_at_utc": "2026-08-13T13:05:29.740320+00:00",
+  "paper_protocol": {
+    "prediction": "recursive_to_end_of_each_cell",
+    "train_cells": [
+      "CALCE_CX2_16.pkl",
+      "CALCE_CX2_33.pkl",
+      "CALCE_CX2_34.pkl",
+      "CALCE_CX2_35.pkl",
+      "CALCE_CX2_36.pkl"
+    ],
+    "test_cells": [
+      "CALCE_CX2_37.pkl",
+      "CALCE_CX2_38.pkl"
+    ],
+    "eol_threshold": 0.7,
+    "inner_steps": 1,
+    "inner_batch_size": 64,
+    "inner_learning_rate": 0.05,
+    "teacher_forcing_predicted_input_probability": 0.5,
+    "maximum_epochs": 500
+  },
+  "paper_unreported_reproduction_choices": {
+    "loss": "masked_mse",
+    "optuna_trial_count": 0,
+    "optuna_search_range": [
+      1e-05,
+      0.01
+    ],
+    "early_stopping_patience": 30,
+    "early_stopping_min_delta": 1e-07,
+    "complete_adaptation_min_delta": 1e-06
+  },
+  "comparability_warning": "The local CALCE preprocessing has 572 future points for CX2_37 at L=500, whereas the paper reports 744; exact numerical equality therefore requires the authors' BatteryML-cleaned sequences.",
+  "runs": [
+    {
+      "history_length": 100,
+      "outer_learning_rate": 0.0001,
+      "outer_learning_rate_source": "cli_fixed",
+      "optuna_trials": 0,
+      "optuna_run": null,
+      "experiment_run": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/paper_recursive_reproduction/20260813_214125_306691_all_L100_paper-rec_s42_c89dbcc12",
+      "selected_config": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/paper_recursive_reproduction/suites/20260813_214124_695263/selected_configs/L100.yaml"
+    }
+  ],
+  "comparison_csv": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/paper_recursive_reproduction/suites/20260813_214124_695263/paper_recursive_comparison.csv"
+}
