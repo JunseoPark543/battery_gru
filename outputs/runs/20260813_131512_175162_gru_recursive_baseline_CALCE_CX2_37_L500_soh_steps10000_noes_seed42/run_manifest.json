@@ -1,0 +1,79 @@
+{
+  "started_at_utc": "2026-08-13T04:15:12.307969+00:00",
+  "status": "completed",
+  "experiment": "plain_gru_recursive_prefix_to_future",
+  "weighted_meta_learning": false,
+  "training_strategy": "recursive_prefix_to_future",
+  "teacher_forcing_ratio": 0.0,
+  "early_stopping": false,
+  "max_optimizer_steps": 10000,
+  "target": "CALCE_CX2_37.pkl",
+  "history_length": 500,
+  "input_features": [
+    "soh"
+  ],
+  "device": "cuda",
+  "seed": 42,
+  "parameters": 25793,
+  "trainable_parameters": 25793,
+  "resolved_config": {
+    "seed": 42,
+    "device": "auto",
+    "data": {
+      "calce_dir": "data/CALCE",
+      "label_path": "data/Life labels/CALCE_labels.json",
+      "history_length": 500,
+      "max_forecast_cycle": null,
+      "eol_threshold": 0.8
+    },
+    "model": {
+      "hidden_size": 64,
+      "num_layers": 1,
+      "dropout": 0.0
+    },
+    "training": {
+      "max_epochs": 10000,
+      "max_steps": 10000,
+      "batch_size": 64,
+      "learning_rate": 0.001,
+      "weight_decay": 0.0,
+      "validation_cycles": 20,
+      "teacher_forcing_ratio": 0.0,
+      "gradient_clip_norm": 5.0,
+      "early_stopping": false,
+      "early_stopping_patience": 30,
+      "early_stopping_min_delta": 1e-07
+    },
+    "logging": {
+      "log_interval": 50,
+      "checkpoint_interval": 50
+    }
+  },
+  "completed_at_utc": "2026-08-13T04:32:29.278529+00:00",
+  "last_epoch": 1250,
+  "last_optimizer_step": 10000,
+  "best_epoch": 812,
+  "best_validation_mse": 2.3437500203726813e-05,
+  "selected_checkpoint": "last.pt",
+  "metrics": {
+    "mae": 0.0655105050403302,
+    "rmse": 0.08377737297642812,
+    "r2": -0.8346965363762888,
+    "r2_nan_reason": null,
+    "max_absolute_error": 0.18496440166381967,
+    "final_cycle_absolute_error": 0.18335411961196357,
+    "pre_eol_mae": 0.014902983472099665,
+    "post_eol_mae": 0.07362002675207505,
+    "prediction_point_count": 572,
+    "true_eol_cycle": 579,
+    "predicted_eol_cycle_discrete": 543.0,
+    "predicted_eol_cycle_interpolated": 542.5591756301831,
+    "true_rul": 79.0,
+    "predicted_rul": 43.0,
+    "signed_rul_error": -36.0,
+    "absolute_rul_error": 36.0,
+    "relative_absolute_rul_error": 0.45569620253164556,
+    "crossing_found": true,
+    "adaptation_mode": "gru_recursive_baseline"
+  }
+}

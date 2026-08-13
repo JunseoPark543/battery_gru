@@ -1,0 +1,27 @@
+seed: 42
+device: auto
+data:
+  calce_dir: data/CALCE
+  label_path: data/Life labels/CALCE_labels.json
+  history_length: 500
+  max_forecast_cycle: null
+  eol_threshold: 0.8
+model:
+  hidden_size: 64
+  num_layers: 1
+  dropout: 0.0
+training:
+  max_epochs: 10000
+  max_steps: 10000
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.0
+  validation_cycles: 20
+  teacher_forcing_ratio: 0.0
+  gradient_clip_norm: 5.0
+  early_stopping: false
+  early_stopping_patience: 30
+  early_stopping_min_delta: 1.0e-07
+logging:
+  log_interval: 50
+  checkpoint_interval: 50
