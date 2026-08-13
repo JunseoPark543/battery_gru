@@ -7,6 +7,9 @@ import pandas as pd
 from paper_reproduction.config import load_config
 from paper_reproduction.run_l100_hparam_suite import (
     CANDIDATES,
+    EIGHT_HOUR_CANDIDATES,
+    EIGHT_HOUR_INNER_LEARNING_RATES,
+    EIGHT_HOUR_PREDICTED_INPUT_PROBABILITIES,
     combine_results,
     configure_candidate,
 )
@@ -35,6 +38,36 @@ def test_l100_hparam_candidates_are_isolated_and_valid(tmp_path):
     assert base.to_dict() == original
 
 
+def test_eight_hour_preset_is_a_sixteen_run_one_step_grid(tmp_path):
+    assert len(EIGHT_HOUR_CANDIDATES) == 16
+    combinations = {
+        (
+            CANDIDATES[name].predicted_input_probability,
+            CANDIDATES[name].inner_learning_rate,
+            CANDIDATES[name].inner_steps,
+        )
+        for name in EIGHT_HOUR_CANDIDATES
+    }
+    expected = {
+        (probability, learning_rate, 1)
+        for probability in EIGHT_HOUR_PREDICTED_INPUT_PROBABILITIES
+        for learning_rate in EIGHT_HOUR_INNER_LEARNING_RATES
+    }
+    assert combinations == expected
+
+    base = load_config(ROOT / "paper_reproduction/configs/paper_recursive_l100.yaml")
+    for name in EIGHT_HOUR_CANDIDATES:
+        config = configure_candidate(
+            base,
+            name,
+            tmp_path / "runs",
+            max_epochs=500,
+            early_stopping=False,
+        )
+        assert config.maml.early_stopping is False
+        assert config.maml.max_epochs == 500
+
+
 def test_l100_hparam_combines_source_ranking_and_target_diagnostics(tmp_path):
     records = []
     for index, name in enumerate(("recursive", "gentle"), start=1):
@@ -60,6 +93,7 @@ def test_l100_hparam_combines_source_ranking_and_target_diagnostics(tmp_path):
                 "predicted_input_probability": CANDIDATES[name].predicted_input_probability,
                 "inner_learning_rate": CANDIDATES[name].inner_learning_rate,
                 "inner_steps": CANDIDATES[name].inner_steps,
+                "elapsed_minutes": 1.0,
                 "run_dir": str(run_dir),
             }
         )
