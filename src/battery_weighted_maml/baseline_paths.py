@@ -63,6 +63,7 @@ def transfer_gru_run_name(
     history_length: int,
     source_mode: str,
     seed: int,
+    prefix_mode: str = "fixed_history",
 ) -> str:
     """Return a short name for source pretraining plus target fine-tuning."""
     source_tag = {
@@ -71,8 +72,16 @@ def transfer_gru_run_name(
     }.get(source_mode)
     if source_tag is None:
         raise ValueError("source_mode must be 'same_family' or 'all_calce'")
+    prefix_tag = {
+        "fixed_history": "transfer",
+        "variable_cutpoint": "varcut",
+    }.get(prefix_mode)
+    if prefix_tag is None:
+        raise ValueError(
+            "prefix_mode must be 'fixed_history' or 'variable_cutpoint'"
+        )
     return (
-        f"{_target_token(target_name)}_gru_l{history_length}_soh_transfer_"
+        f"{_target_token(target_name)}_gru_l{history_length}_soh_{prefix_tag}_"
         f"{source_tag}_s{seed}"
     )
 

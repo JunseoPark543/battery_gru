@@ -21,9 +21,9 @@ import yaml
 from tqdm.auto import tqdm
 
 from .baseline_paths import new_baseline_run_dir, transfer_gru_run_name
-from .data.collate import sample_support_batch
+from .data.collate import collate_support_pairs, sample_support_batch
 from .data.preprocess import preprocess_dataset, summary_record
-from .data.support_dataset import PrefixFutureDataset
+from .data.support_dataset import PrefixFutureDataset, SupportPair
 from .data.task_views import (
     FullCellTrajectory,
     SourceTaskView,
@@ -66,6 +66,18 @@ class SourcePretrainingConfig:
     early_stopping: bool = True
     early_stopping_patience: int = 30
     early_stopping_min_delta: float = 1.0e-7
+    # fixed_history reproduces the original 1..L -> L+1..end baseline.
+    # variable_cutpoint learns prefix 1..c -> c+1..end for cut points drawn
+    # across each source cell's complete observed life.
+    prefix_mode: str = "fixed_history"
+    min_cut_point: int = 1
+    max_cut_point: int | None = None
+    cut_points_per_source_per_epoch: int | None = 16
+    cut_point_batch_size: int = 16
+    include_target_history_cut_point: bool = True
+    selection_cut_points: list[int] = field(
+        default_factory=lambda: [25, 50, 75, 100, 200, 500]
+    )
 
 
 @dataclass
@@ -128,6 +140,37 @@ class SourcePretrainedGRUConfig:
             raise ValueError("pretraining epoch/rate/clipping/patience must be positive")
         if pretraining.weight_decay < 0 or pretraining.early_stopping_min_delta < 0:
             raise ValueError("pretraining weight decay/min delta cannot be negative")
+        if pretraining.prefix_mode not in {"fixed_history", "variable_cutpoint"}:
+            raise ValueError(
+                "pretraining.prefix_mode must be fixed_history or variable_cutpoint"
+            )
+        if pretraining.min_cut_point <= 0:
+            raise ValueError("pretraining.min_cut_point must be positive")
+        if (
+            pretraining.max_cut_point is not None
+            and pretraining.max_cut_point < pretraining.min_cut_point
+        ):
+            raise ValueError(
+                "pretraining.max_cut_point must be null or >= min_cut_point"
+            )
+        if (
+            pretraining.cut_points_per_source_per_epoch is not None
+            and pretraining.cut_points_per_source_per_epoch <= 0
+        ):
+            raise ValueError(
+                "pretraining.cut_points_per_source_per_epoch must be null or positive"
+            )
+        if pretraining.cut_point_batch_size <= 0:
+            raise ValueError("pretraining.cut_point_batch_size must be positive")
+        if (
+            not pretraining.selection_cut_points
+            or any(point <= 0 for point in pretraining.selection_cut_points)
+            or sorted(set(pretraining.selection_cut_points))
+            != pretraining.selection_cut_points
+        ):
+            raise ValueError(
+                "pretraining.selection_cut_points must be unique, increasing, and positive"
+            )
         fine_tuning = self.fine_tuning
         if any(
             value <= 0
@@ -163,6 +206,31 @@ class FineTuningResult:
     best_loss: float
     best_step: int
     snapshots: dict[int, GRUSeq2Seq] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SourceTrajectoryTask:
+    """Complete source trajectory exposed only to supervised source training."""
+
+    file_name: str
+    soh: torch.Tensor
+    features: torch.Tensor
+
+    def __post_init__(self) -> None:
+        soh = self.soh.detach().to(dtype=torch.float32).flatten().cpu().clone()
+        features = self.features.detach().to(dtype=torch.float32).cpu().clone()
+        if len(soh) < 2:
+            raise ValueError(f"{self.file_name}: source trajectory needs two cycles")
+        if features.shape != (len(soh), 1):
+            raise ValueError(
+                f"{self.file_name}: SOH-only source features must have shape [T,1]"
+            )
+        if not torch.isfinite(soh).all() or not torch.isfinite(features).all():
+            raise ValueError(f"{self.file_name}: source trajectory is non-finite")
+        if not torch.allclose(features[:, 0], soh):
+            raise ValueError(f"{self.file_name}: feature zero must be SOH")
+        object.__setattr__(self, "soh", soh)
+        object.__setattr__(self, "features", features)
 
 
 def load_source_pretrained_gru_config(
@@ -272,7 +340,8 @@ def _pretraining_checkpoint_payload(
         "source_file_names": list(source_names),
         "history_length": config.data.history_length,
         "source_mode": config.data.source_mode,
-        "training_strategy": "equal_source_supervised_pretraining",
+        "training_strategy": _training_strategy(config),
+        "cut_point_signature": _cut_point_signature(config),
         "rng_states": capture_rng_state(),
     }
 
@@ -306,7 +375,10 @@ def _load_pretraining_checkpoint(
     missing = required - set(payload)
     if missing:
         raise ValueError(f"pretraining checkpoint missing keys: {sorted(missing)}")
-    if payload["training_strategy"] != "equal_source_supervised_pretraining":
+    if payload["training_strategy"] not in {
+        "equal_source_supervised_pretraining",
+        "equal_source_variable_cutpoint_pretraining",
+    }:
         raise ValueError("checkpoint is not a source-pretrained GRU baseline")
     model.load_state_dict(payload["model_state_dict"])
     if optimizer is not None:
@@ -343,29 +415,217 @@ def _task_loss(
     return loss
 
 
+def _training_strategy(config: SourcePretrainedGRUConfig) -> str:
+    if config.pretraining.prefix_mode == "variable_cutpoint":
+        return "equal_source_variable_cutpoint_pretraining"
+    return "equal_source_supervised_pretraining"
+
+
+def _cut_point_signature(config: SourcePretrainedGRUConfig) -> dict[str, Any]:
+    pretraining = config.pretraining
+    return {
+        "prefix_mode": pretraining.prefix_mode,
+        "min_cut_point": pretraining.min_cut_point,
+        "max_cut_point": pretraining.max_cut_point,
+        "cut_points_per_source_per_epoch": (
+            pretraining.cut_points_per_source_per_epoch
+        ),
+        "cut_point_batch_size": pretraining.cut_point_batch_size,
+        "include_target_history_cut_point": (
+            pretraining.include_target_history_cut_point
+        ),
+        "selection_cut_points": list(pretraining.selection_cut_points),
+    }
+
+
+def _valid_cut_point_bounds(
+    task: SourceTrajectoryTask,
+    config: SourcePretrainedGRUConfig,
+) -> tuple[int, int]:
+    lower = config.pretraining.min_cut_point
+    configured_upper = config.pretraining.max_cut_point
+    upper = len(task.soh) - 1
+    if configured_upper is not None:
+        upper = min(upper, configured_upper)
+    if lower > upper:
+        raise ValueError(
+            f"{task.file_name}: no valid cut point in [{lower}, {upper}] for "
+            f"a {len(task.soh)}-cycle trajectory"
+        )
+    return lower, upper
+
+
+def sample_source_cut_points(
+    task: SourceTrajectoryTask,
+    config: SourcePretrainedGRUConfig,
+    generator: torch.Generator,
+) -> list[int]:
+    """Sample length-balanced cut points while always retaining L when valid."""
+    lower, upper = _valid_cut_point_bounds(task, config)
+    all_points = list(range(lower, upper + 1))
+    requested = config.pretraining.cut_points_per_source_per_epoch
+    if requested is None or requested >= len(all_points):
+        return all_points
+
+    budget = min(int(requested), len(all_points))
+    mandatory: list[int] = []
+    history_length = config.data.history_length
+    if (
+        config.pretraining.include_target_history_cut_point
+        and lower <= history_length <= upper
+    ):
+        mandatory.append(history_length)
+    if len(mandatory) >= budget:
+        return sorted(mandatory[:budget])
+
+    remaining = [point for point in all_points if point not in mandatory]
+    slots = budget - len(mandatory)
+    selected: list[int] = []
+    # One random point per equally sized lifetime bin prevents late or early
+    # prefixes from dominating while changing the exact pairs every epoch.
+    for index in range(slots):
+        start = index * len(remaining) // slots
+        stop = (index + 1) * len(remaining) // slots
+        offset = int(
+            torch.randint(
+                stop - start,
+                (1,),
+                generator=generator,
+                device=generator.device,
+            ).cpu()
+        )
+        selected.append(remaining[start + offset])
+    return sorted(mandatory + selected)
+
+
+def _selection_cut_points(
+    task: SourceTrajectoryTask,
+    config: SourcePretrainedGRUConfig,
+) -> list[int]:
+    lower, upper = _valid_cut_point_bounds(task, config)
+    requested = set(config.pretraining.selection_cut_points)
+    requested.add(config.data.history_length)
+    selected = sorted(point for point in requested if lower <= point <= upper)
+    if selected:
+        return selected
+    return [lower]
+
+
+def _source_pairs(
+    task: SourceTrajectoryTask,
+    cut_points: Sequence[int],
+) -> list[SupportPair]:
+    pairs: list[SupportPair] = []
+    for cut_point in cut_points:
+        if cut_point <= 0 or cut_point >= len(task.soh):
+            raise ValueError(
+                f"{task.file_name}: cut point {cut_point} is outside [1,{len(task.soh) - 1}]"
+            )
+        pairs.append(
+            SupportPair(
+                history=task.features[:cut_point],
+                future=task.soh[cut_point:].unsqueeze(-1),
+            )
+        )
+    if not pairs:
+        raise ValueError(f"{task.file_name}: at least one cut point is required")
+    return pairs
+
+
+def _pair_balanced_mse(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor,
+) -> torch.Tensor:
+    if mask.ndim == 2:
+        mask = mask.unsqueeze(-1)
+    valid = mask.to(device=prediction.device, dtype=prediction.dtype)
+    per_pair_count = valid.sum(dim=(1, 2)).clamp_min(1.0)
+    per_pair_loss = ((prediction - target).square() * valid).sum(dim=(1, 2))
+    return (per_pair_loss / per_pair_count).mean()
+
+
+def _variable_cutpoint_loss_batches(
+    model: GRUSeq2Seq,
+    task: SourceTrajectoryTask,
+    cut_points: Sequence[int],
+    device: torch.device,
+    teacher_forcing_ratio: float,
+    generator: torch.Generator | None,
+    batch_size: int,
+) -> list[tuple[torch.Tensor, int]]:
+    pairs = _source_pairs(task, cut_points)
+    batches: list[tuple[torch.Tensor, int]] = []
+    for offset in range(0, len(pairs), batch_size):
+        selected = pairs[offset : offset + batch_size]
+        batch = {
+            key: value.to(device)
+            for key, value in collate_support_pairs(selected).items()
+        }
+        prediction = model(
+            batch["history"],
+            batch["history_lengths"],
+            future_targets=batch["future"],
+            teacher_forcing_ratio=teacher_forcing_ratio,
+            generator=generator,
+        )
+        loss = _pair_balanced_mse(
+            prediction, batch["future"], batch["future_mask"]
+        )
+        if not torch.isfinite(loss):
+            raise FloatingPointError(
+                f"non-finite variable-cutpoint source loss for {task.file_name}"
+            )
+        batches.append((loss, len(selected)))
+    return batches
+
+
 @torch.no_grad()
 def _recursive_source_losses(
     model: GRUSeq2Seq,
-    source_tasks: Sequence[SourceTaskView],
+    source_tasks: Sequence[SourceTaskView | SourceTrajectoryTask],
     device: torch.device,
+    config: SourcePretrainedGRUConfig,
 ) -> dict[str, float]:
     was_training = model.training
     model.eval()
-    losses = {
-        task.file_name: float(
-            _task_loss(model, task, device, teacher_forcing_ratio=0.0, generator=None)
-            .detach()
-            .cpu()
-        )
-        for task in source_tasks
-    }
+    losses: dict[str, float] = {}
+    for task in source_tasks:
+        if isinstance(task, SourceTrajectoryTask):
+            cut_points = _selection_cut_points(task, config)
+            weighted_sum = 0.0
+            pair_count = 0
+            for loss, count in _variable_cutpoint_loss_batches(
+                model,
+                task,
+                cut_points,
+                device,
+                teacher_forcing_ratio=0.0,
+                generator=None,
+                batch_size=config.pretraining.cut_point_batch_size,
+            ):
+                weighted_sum += float(loss.detach().cpu()) * count
+                pair_count += count
+            losses[task.file_name] = weighted_sum / pair_count
+        else:
+            losses[task.file_name] = float(
+                _task_loss(
+                    model,
+                    task,
+                    device,
+                    teacher_forcing_ratio=0.0,
+                    generator=None,
+                )
+                .detach()
+                .cpu()
+            )
     model.train(was_training)
     return losses
 
 
 def train_on_sources(
     model: GRUSeq2Seq,
-    source_tasks: Sequence[SourceTaskView],
+    source_tasks: Sequence[SourceTaskView | SourceTrajectoryTask],
     config: SourcePretrainedGRUConfig,
     device: torch.device,
     run_dir: Path,
@@ -403,6 +663,13 @@ def train_on_sources(
             raise ValueError("resume checkpoint history length does not match")
         if payload["source_mode"] != config.data.source_mode:
             raise ValueError("resume checkpoint source mode does not match")
+        if payload["training_strategy"] != _training_strategy(config):
+            raise ValueError("resume checkpoint pretraining strategy does not match")
+        if (
+            config.pretraining.prefix_mode == "variable_cutpoint"
+            and payload.get("cut_point_signature") != _cut_point_signature(config)
+        ):
+            raise ValueError("resume checkpoint cut-point settings do not match")
         start_epoch = int(payload["epoch"]) + 1
         best_selection_loss = float(payload["best_selection_loss"])
         best_epoch = int(payload["best_epoch"])
@@ -428,21 +695,47 @@ def train_on_sources(
             config.seed + epoch * 1009
         )
         order = torch.randperm(len(source_tasks), generator=order_generator).tolist()
+        cut_generator = torch.Generator(device="cpu").manual_seed(
+            config.seed + epoch * 1543
+        )
         teacher_generator = make_generator(config.seed + epoch * 2027, device)
         optimizer.zero_grad(set_to_none=True)
         teacher_losses: dict[str, float] = {}
+        epoch_cut_points: dict[str, list[int]] = {}
         for index in order:
             task = source_tasks[int(index)]
-            loss = _task_loss(
-                model,
-                task,
-                device,
-                teacher_forcing_ratio=config.model.teacher_forcing_ratio,
-                generator=teacher_generator,
-            )
-            # Equal task weighting prevents long-lived cells from dominating.
-            (loss / len(source_tasks)).backward()
-            teacher_losses[task.file_name] = float(loss.detach().cpu())
+            if isinstance(task, SourceTrajectoryTask):
+                cut_points = sample_source_cut_points(task, config, cut_generator)
+                epoch_cut_points[task.file_name] = cut_points
+                weighted_loss = 0.0
+                pair_count = 0
+                for loss, count in _variable_cutpoint_loss_batches(
+                    model,
+                    task,
+                    cut_points,
+                    device,
+                    teacher_forcing_ratio=config.model.teacher_forcing_ratio,
+                    generator=teacher_generator,
+                    batch_size=config.pretraining.cut_point_batch_size,
+                ):
+                    # Average pairs within each source, then average sources.
+                    scale = count / len(cut_points) / len(source_tasks)
+                    (loss * scale).backward()
+                    weighted_loss += float(loss.detach().cpu()) * count
+                    pair_count += count
+                teacher_losses[task.file_name] = weighted_loss / pair_count
+            else:
+                loss = _task_loss(
+                    model,
+                    task,
+                    device,
+                    teacher_forcing_ratio=config.model.teacher_forcing_ratio,
+                    generator=teacher_generator,
+                )
+                # Equal task weighting prevents long-lived cells from dominating.
+                (loss / len(source_tasks)).backward()
+                teacher_losses[task.file_name] = float(loss.detach().cpu())
+                epoch_cut_points[task.file_name] = [config.data.history_length]
         gradient_norm = float(
             torch.nn.utils.clip_grad_norm_(
                 model.parameters(), config.pretraining.gradient_clip_norm
@@ -452,7 +745,9 @@ def train_on_sources(
         )
         optimizer.step()
 
-        recursive_losses = _recursive_source_losses(model, source_tasks, device)
+        recursive_losses = _recursive_source_losses(
+            model, source_tasks, device, config
+        )
         train_loss = sum(teacher_losses.values()) / len(teacher_losses)
         selection_loss = sum(recursive_losses.values()) / len(recursive_losses)
         improved = (
@@ -484,6 +779,10 @@ def train_on_sources(
                     "teacher_forced_mse": teacher_losses[task.file_name],
                     "recursive_mse": recursive_losses[task.file_name],
                     "source_weight": 1.0 / len(source_tasks),
+                    "cut_point_count": len(epoch_cut_points[task.file_name]),
+                    "cut_point_min": min(epoch_cut_points[task.file_name]),
+                    "cut_point_max": max(epoch_cut_points[task.file_name]),
+                    "cut_points": json.dumps(epoch_cut_points[task.file_name]),
                 }
             )
         payload = _pretraining_checkpoint_payload(
@@ -731,10 +1030,22 @@ def run_source_pretrained_gru_baseline(
     )
     target_full = trajectories[target_name]
     target_support = target_full.target_support(resolved.data.history_length, ("soh",))
-    source_tasks = [
-        trajectories[name].source_task(resolved.data.history_length, ("soh",))
-        for name in source_names
-    ]
+    if resolved.pretraining.prefix_mode == "variable_cutpoint":
+        source_tasks: list[SourceTaskView | SourceTrajectoryTask] = [
+            SourceTrajectoryTask(
+                file_name=name,
+                soh=torch.tensor(trajectories[name].soh, dtype=torch.float32),
+                features=torch.tensor(
+                    trajectories[name].soh[:, None], dtype=torch.float32
+                ),
+            )
+            for name in source_names
+        ]
+    else:
+        source_tasks = [
+            trajectories[name].source_task(resolved.data.history_length, ("soh",))
+            for name in source_names
+        ]
     if resume is not None:
         if run_name is not None:
             raise ValueError("--run-name cannot be combined with --resume")
@@ -747,6 +1058,7 @@ def run_source_pretrained_gru_baseline(
                 resolved.data.history_length,
                 resolved.data.source_mode,
                 resolved.seed,
+                resolved.pretraining.prefix_mode,
             ),
             requested_name=run_name,
         )
@@ -785,6 +1097,10 @@ def run_source_pretrained_gru_baseline(
         "weighted_meta_learning": False,
         "source_weighting": "uniform_task_balanced",
         "source_pretraining": True,
+        "source_prefix_mode": resolved.pretraining.prefix_mode,
+        "source_cut_point_generalization": (
+            resolved.pretraining.prefix_mode == "variable_cutpoint"
+        ),
         "target_fine_tuning": True,
         "target_future_used_for_training_or_selection": False,
         "target": target_name,
@@ -804,10 +1120,12 @@ def run_source_pretrained_gru_baseline(
     )
     logger.info(
         "Starting non-meta transfer baseline target=%s sources=%s L=%d "
-        "input=['soh'] teacher_forcing=%.3f device=%s parameters=%d",
+        "source_prefix_mode=%s input=['soh'] teacher_forcing=%.3f "
+        "device=%s parameters=%d",
         target_name,
         source_names,
         resolved.data.history_length,
+        resolved.pretraining.prefix_mode,
         resolved.model.teacher_forcing_ratio,
         device,
         total,

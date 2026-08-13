@@ -5,6 +5,7 @@ import pytest
 from battery_weighted_maml.baseline_paths import (
     new_baseline_run_dir,
     recursive_gru_run_name,
+    transfer_gru_run_name,
     window_gru_run_name,
 )
 
@@ -26,6 +27,12 @@ def test_window_name_uses_conditions_without_timestamp() -> None:
     assert window_gru_run_name("CALCE_CX2_37.pkl", 500, 300, 42) == (
         "cx2_37_gru_l500_soh_window_300ep_es_s42"
     )
+
+
+def test_variable_cutpoint_transfer_name_identifies_generalization() -> None:
+    assert transfer_gru_run_name(
+        "CALCE_CX2_37.pkl", 100, "same_family", 42, "variable_cutpoint"
+    ) == "cx2_37_gru_l100_soh_varcut_samefam_s42"
 
 
 def test_new_baseline_directory_rejects_overwrite(tmp_path) -> None:
