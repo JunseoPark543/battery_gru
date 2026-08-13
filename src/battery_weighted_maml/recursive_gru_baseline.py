@@ -20,6 +20,7 @@ import torch
 import yaml
 from tqdm.auto import tqdm
 
+from .baseline_paths import new_baseline_run_dir, recursive_gru_run_name
 from .data.calce_loader import load_calce_pickle, load_eol_labels
 from .data.collate import collate_support_pairs
 from .data.preprocess import preprocess_cell
@@ -497,6 +498,7 @@ def run_recursive_gru_baseline(
     resume: str | Path | None = None,
     smoke_test: bool = False,
     target_trajectory: Any | None = None,
+    run_name: str | None = None,
 ) -> Path:
     root = Path(project_root).resolve()
     resolved = copy.deepcopy(config)
@@ -511,19 +513,22 @@ def run_recursive_gru_baseline(
     resolved.validate()
     seed_everything(resolved.seed)
     if resume is not None:
+        if run_name is not None:
+            raise ValueError("--run-name cannot be combined with --resume")
         run_dir = Path(resume).resolve().parent.parent
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        budget_suffix = (
-            f"_steps{resolved.training.max_steps}"
-            if resolved.training.max_steps is not None
-            else f"_epochs{resolved.training.max_epochs}"
+        automatic_name = recursive_gru_run_name(
+            target_name=target_name,
+            history_length=resolved.data.history_length,
+            max_steps=resolved.training.max_steps,
+            max_epochs=resolved.training.max_epochs,
+            early_stopping=resolved.training.early_stopping,
+            seed=resolved.seed,
         )
-        stopping_suffix = "_es" if resolved.training.early_stopping else "_noes"
-        run_dir = root / "outputs/runs" / (
-            f"{timestamp}_gru_recursive_baseline_{Path(target_name).stem}_"
-            f"L{resolved.data.history_length}_soh{budget_suffix}"
-            f"{stopping_suffix}_seed{resolved.seed}"
+        run_dir = new_baseline_run_dir(
+            root,
+            automatic_name=automatic_name,
+            requested_name=run_name,
         )
     _make_run_tree(run_dir)
     logger = configure_logging(run_dir / "logs/train.log")
@@ -558,6 +563,8 @@ def run_recursive_gru_baseline(
         "started_at_utc": datetime.now(timezone.utc).isoformat(),
         "status": "running",
         "experiment": "plain_gru_recursive_prefix_to_future",
+        "run_name": run_dir.name,
+        "output_group": "baseline",
         "weighted_meta_learning": False,
         "training_strategy": "recursive_prefix_to_future",
         "teacher_forcing_ratio": 0.0,
@@ -643,6 +650,13 @@ def recursive_baseline_main() -> None:
     parser.add_argument("--target", required=True)
     parser.add_argument("--config", required=True)
     parser.add_argument("--resume")
+    parser.add_argument(
+        "--run-name",
+        help=(
+            "optional short condition name below outputs/baseline; "
+            "cannot be used with --resume"
+        ),
+    )
     parser.add_argument("--smoke-test", action="store_true")
     args = parser.parse_args()
     run_recursive_gru_baseline(
@@ -651,4 +665,5 @@ def recursive_baseline_main() -> None:
         project_root=Path.cwd(),
         resume=args.resume,
         smoke_test=args.smoke_test,
+        run_name=args.run_name,
     )

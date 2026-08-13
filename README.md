@@ -169,6 +169,13 @@ python scripts/run_gru_baseline.py \
   --config configs/gru_baseline_l500.yaml
 ```
 
+Non-meta baseline results are stored below `outputs/baseline/`. Run directory
+names contain the main conditions rather than a timestamp, for example
+`cx2_37_gru_l500_soh_window_300ep_es_s42`. Full details remain recorded in
+`config_resolved.yaml` and `run_manifest.json`. Existing directories are never
+overwritten; use `--resume` to continue one or `--run-name` to label a distinct
+variant.
+
 이 baseline은 source cell, MMD, QP alpha, MAML inner/outer loop를 사용하지 않습니다. Target의 최초 500 cycle 중 앞 450개로 sliding-window 학습하고 뒤 50개 support cycle의 recursive MSE로 early stopping checkpoint를 고릅니다. 최종 예측에서는 선택된 모델의 encoder에 관측된 500개 SOH 전체를 넣습니다. 기본값은 최대 300 epoch, patience 30입니다.
 
 중단된 baseline은 다음처럼 마지막으로 저장된 epoch에서 재개합니다.
@@ -177,7 +184,7 @@ python scripts/run_gru_baseline.py \
 python scripts/run_gru_baseline.py \
   --target CALCE_CX2_37.pkl \
   --config configs/gru_baseline_l500.yaml \
-  --resume outputs/runs/RUN_NAME/checkpoints/last.pt
+  --resume outputs/baseline/RUN_NAME/checkpoints/last.pt
 ```
 
 빠른 end-to-end 검증(meta iteration 2, full adaptation 2 step, horizon 10):

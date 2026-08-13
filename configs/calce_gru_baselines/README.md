@@ -45,7 +45,9 @@ python scripts/run_calce_gru_baseline_suite.py \
   --device cuda
 ```
 
-Individual results remain under `outputs/runs/`. The suite runner also writes a
+Non-meta results are stored under `outputs/baseline/` with short condition-based
+names and no timestamp. Weighted-meta results remain under `outputs/runs/`.
+The suite runner also writes a
 small index containing all four paths under
 `outputs/calce_gru_baseline_suites/<timestamp>/suite_manifest.json`.
 
@@ -60,6 +62,9 @@ python scripts/run_recursive_gru_baseline.py \
   --config configs/calce_gru_baselines/nometa_soh_l100_10000steps_no_early_stopping.yaml
 ```
 
+The automatic result directory is
+`outputs/baseline/cx2_37_gru_l100_soh_rec_10kstep_noes_s42/`.
+
 Validation MSE and `best_validation.pt` are still recorded for diagnostics,
 but the final trajectory and metrics use `last.pt` at optimizer step 10,000.
 
@@ -70,7 +75,10 @@ python scripts/run_recursive_gru_baseline.py \
   --target CALCE_CX2_37.pkl \
   --config configs/calce_gru_baselines/nometa_soh_l500_10000steps_no_early_stopping.yaml
 ```
-The same directory contains `baseline_comparison.csv`,
+
+The automatic result directory is
+`outputs/baseline/cx2_37_gru_l500_soh_rec_10kstep_noes_s42/`.
+The suite directory contains `baseline_comparison.csv`,
 `baseline_comparison.json`, and `baseline_comparison.png` with matched
 trajectory and RUL metrics. These files are updated after each completed run,
 so already-finished experiments remain easy to inspect if a later run stops.

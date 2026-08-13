@@ -20,6 +20,7 @@ import torch
 import yaml
 from tqdm.auto import tqdm
 
+from .baseline_paths import new_baseline_run_dir, window_gru_run_name
 from .data.calce_loader import load_calce_pickle, load_eol_labels
 from .data.preprocess import preprocess_cell
 from .data.soh_window_dataset import SOHWindowDataset
@@ -403,6 +404,7 @@ def run_gru_baseline(
     resume: str | Path | None = None,
     smoke_test: bool = False,
     target_trajectory: Any | None = None,
+    run_name: str | None = None,
 ) -> Path:
     """Train and evaluate one target-specific, non-meta GRU baseline."""
     root = Path(project_root).resolve()
@@ -416,12 +418,20 @@ def run_gru_baseline(
     resolved.validate()
     seed_everything(resolved.seed)
     if resume is not None:
+        if run_name is not None:
+            raise ValueError("--run-name cannot be combined with --resume")
         run_dir = Path(resume).resolve().parent.parent
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        run_dir = root / "outputs/runs" / (
-            f"{timestamp}_gru_baseline_{Path(target_name).stem}_"
-            f"L{resolved.data.history_length}_seed{resolved.seed}"
+        automatic_name = window_gru_run_name(
+            target_name=target_name,
+            history_length=resolved.data.history_length,
+            max_epochs=resolved.training.max_epochs,
+            seed=resolved.seed,
+        )
+        run_dir = new_baseline_run_dir(
+            root,
+            automatic_name=automatic_name,
+            requested_name=run_name,
         )
     _make_run_tree(run_dir)
     logger = configure_logging(run_dir / "logs/train.log")
@@ -459,6 +469,8 @@ def run_gru_baseline(
         "started_at_utc": datetime.now(timezone.utc).isoformat(),
         "status": "running",
         "experiment": "plain_gru_encoder_decoder",
+        "run_name": run_dir.name,
+        "output_group": "baseline",
         "weighted_meta_learning": False,
         "target": target_name,
         "history_length": resolved.data.history_length,
@@ -531,6 +543,13 @@ def baseline_main() -> None:
     parser.add_argument("--target", required=True)
     parser.add_argument("--config", default="configs/gru_baseline_l500.yaml")
     parser.add_argument("--resume")
+    parser.add_argument(
+        "--run-name",
+        help=(
+            "optional short condition name below outputs/baseline; "
+            "cannot be used with --resume"
+        ),
+    )
     parser.add_argument("--smoke-test", action="store_true")
     args = parser.parse_args()
     config = load_gru_baseline_config(args.config)
@@ -540,4 +559,5 @@ def baseline_main() -> None:
         project_root=Path.cwd(),
         resume=args.resume,
         smoke_test=args.smoke_test,
+        run_name=args.run_name,
     )

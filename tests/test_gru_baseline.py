@@ -73,7 +73,10 @@ def test_plain_gru_baseline_smoke_pipeline(tmp_path):
     for relative in required:
         assert (run_dir / relative).is_file(), relative
     manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
+    assert run_dir.parent == tmp_path / "outputs" / "baseline"
+    assert run_dir.name == "cx2_37_gru_l20_soh_window_2ep_es_s42"
     assert manifest["status"] == "completed"
+    assert manifest["output_group"] == "baseline"
     assert manifest["weighted_meta_learning"] is False
     assert manifest["input_features"] == ["soh"]
     assert manifest["history_length"] == 20
