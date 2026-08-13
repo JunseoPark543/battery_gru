@@ -62,6 +62,14 @@ python scripts/run_recursive_gru_baseline.py \
 
 Validation MSE and `best_validation.pt` are still recorded for diagnostics,
 but the final trajectory and metrics use `last.pt` at optimizer step 10,000.
+
+The otherwise identical L500 run is:
+
+```bash
+python scripts/run_recursive_gru_baseline.py \
+  --target CALCE_CX2_37.pkl \
+  --config configs/calce_gru_baselines/nometa_soh_l500_10000steps_no_early_stopping.yaml
+```
 The same directory contains `baseline_comparison.csv`,
 `baseline_comparison.json`, and `baseline_comparison.png` with matched
 trajectory and RUL metrics. These files are updated after each completed run,

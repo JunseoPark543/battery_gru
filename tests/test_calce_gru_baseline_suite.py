@@ -31,6 +31,25 @@ def test_l100_no_early_stopping_config_has_exact_step_budget() -> None:
     assert config.training.teacher_forcing_ratio == 0.0
 
 
+def test_no_early_stopping_step_budget_pair_differs_only_in_history_length() -> None:
+    l100 = load_recursive_gru_config(
+        "configs/calce_gru_baselines/"
+        "nometa_soh_l100_10000steps_no_early_stopping.yaml"
+    )
+    l500 = load_recursive_gru_config(
+        "configs/calce_gru_baselines/"
+        "nometa_soh_l500_10000steps_no_early_stopping.yaml"
+    )
+    assert l100.data.history_length == 100
+    assert l500.data.history_length == 500
+    assert l500.training.max_steps == 10_000
+    assert l500.training.early_stopping is False
+    l100_dict = l100.to_dict()
+    l500_dict = l500.to_dict()
+    l100_dict["data"]["history_length"] = 500
+    assert l100_dict == l500_dict
+
+
 def test_weighted_meta_pair_differs_only_in_history_length() -> None:
     l100 = load_config(
         "configs/calce_gru_baselines/weighted_meta_soh_l100.yaml"
