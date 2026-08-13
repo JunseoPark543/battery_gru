@@ -51,6 +51,9 @@ class RecursiveModelConfig:
 @dataclass
 class RecursiveTrainingConfig:
     max_epochs: int = 300
+    # Optional exact optimizer-update budget. When set, training stops after
+    # this many optimizer.step() calls even if max_epochs has not been reached.
+    max_steps: int | None = None
     batch_size: int = 64
     learning_rate: float = 1.0e-3
     weight_decay: float = 0.0
@@ -59,6 +62,7 @@ class RecursiveTrainingConfig:
     # recursive during training as well as evaluation.
     teacher_forcing_ratio: float = 0.0
     gradient_clip_norm: float = 5.0
+    early_stopping: bool = True
     early_stopping_patience: int = 30
     early_stopping_min_delta: float = 1.0e-7
 
@@ -107,6 +111,10 @@ class RecursiveGRUBaselineConfig:
         }
         if any(value <= 0 for value in positive.values()):
             raise ValueError(f"training values must be positive: {positive}")
+        if training.max_steps is not None and training.max_steps <= 0:
+            raise ValueError("training.max_steps must be null or positive")
+        if not isinstance(training.early_stopping, bool):
+            raise ValueError("training.early_stopping must be true or false")
         if training.weight_decay < 0 or training.early_stopping_min_delta < 0:
             raise ValueError("weight_decay and early_stopping_min_delta cannot be negative")
         if training.teacher_forcing_ratio != 0.0:
@@ -176,6 +184,7 @@ def _checkpoint_payload(
     model: GRUSeq2Seq,
     optimizer: torch.optim.Optimizer,
     epoch: int,
+    optimizer_step: int,
     best_validation_loss: float,
     best_epoch: int,
     stale_epochs: int,
@@ -186,6 +195,7 @@ def _checkpoint_payload(
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "epoch": epoch,
+        "optimizer_step": optimizer_step,
         "best_validation_loss": best_validation_loss,
         "best_epoch": best_epoch,
         "stale_epochs": stale_epochs,
@@ -275,6 +285,7 @@ def train_recursive_gru(
     history_path = run_dir / "training/epoch_history.csv"
     records: list[dict[str, float | int]] = []
     start_epoch = 1
+    optimizer_step = 0
     best_validation_loss = float("inf")
     best_epoch = 0
     stale_epochs = 0
@@ -285,13 +296,18 @@ def train_recursive_gru(
         if int(payload["history_length"]) != target_support.history_length:
             raise ValueError("resume checkpoint history length does not match")
         start_epoch = int(payload["epoch"]) + 1
+        optimizer_step = int(payload.get("optimizer_step", 0))
         best_validation_loss = float(payload["best_validation_loss"])
         best_epoch = int(payload["best_epoch"])
         stale_epochs = int(payload.get("stale_epochs", 0))
         if history_path.is_file():
             previous = pd.read_csv(history_path)
             records = previous[previous["epoch"] < start_epoch].to_dict("records")
-        logger.info("Resuming recursive GRU training at epoch %d", start_epoch)
+        logger.info(
+            "Resuming recursive GRU training at epoch %d optimizer_step=%d",
+            start_epoch,
+            optimizer_step,
+        )
 
     began = time.perf_counter()
     progress = tqdm(
@@ -301,6 +317,8 @@ def train_recursive_gru(
     )
     last_epoch = start_epoch - 1
     for epoch in progress:
+        if training.max_steps is not None and optimizer_step >= training.max_steps:
+            break
         model.train()
         generator = torch.Generator(device="cpu").manual_seed(config.seed + epoch * 1009)
         indices = torch.randperm(len(dataset), generator=generator)
@@ -308,6 +326,8 @@ def train_recursive_gru(
         total_values = 0
         epoch_grad_norm = 0.0
         for offset in range(0, len(indices), training.batch_size):
+            if training.max_steps is not None and optimizer_step >= training.max_steps:
+                break
             selected = indices[offset : offset + training.batch_size].tolist()
             batch = collate_support_pairs([dataset[int(index)] for index in selected])
             batch = {key: value.to(device) for key, value in batch.items()}
@@ -331,6 +351,7 @@ def train_recursive_gru(
                 epoch_grad_norm, float(grad_norm_tensor.detach().cpu())
             )
             optimizer.step()
+            optimizer_step += 1
             value_count = int(batch["future_mask"].sum().item())
             total_squared_error += float(loss.detach().cpu()) * value_count
             total_values += value_count
@@ -347,6 +368,7 @@ def train_recursive_gru(
         records.append(
             {
                 "epoch": epoch,
+                "optimizer_step": optimizer_step,
                 "train_recursive_mse": train_loss,
                 "validation_recursive_mse": validation_loss,
                 "gradient_norm_max": epoch_grad_norm,
@@ -358,6 +380,7 @@ def train_recursive_gru(
             model,
             optimizer,
             epoch,
+            optimizer_step,
             best_validation_loss,
             best_epoch,
             stale_epochs,
@@ -366,20 +389,42 @@ def train_recursive_gru(
         )
         if improved:
             _save_checkpoint(payload, run_dir / "checkpoints/best_validation.pt")
-        if epoch % config.logging.checkpoint_interval == 0 or epoch == training.max_epochs:
+        reached_step_limit = (
+            training.max_steps is not None and optimizer_step >= training.max_steps
+        )
+        if (
+            epoch % config.logging.checkpoint_interval == 0
+            or epoch == training.max_epochs
+            or reached_step_limit
+        ):
             _save_checkpoint(payload, run_dir / "checkpoints/last.pt")
             pd.DataFrame(records).to_csv(history_path, index=False)
         last_epoch = epoch
-        progress.set_postfix(train=f"{train_loss:.5g}", val=f"{validation_loss:.5g}")
+        progress.set_postfix(
+            step=(
+                f"{optimizer_step}/{training.max_steps}"
+                if training.max_steps is not None
+                else optimizer_step
+            ),
+            train=f"{train_loss:.5g}",
+            val=f"{validation_loss:.5g}",
+        )
         if epoch % config.logging.log_interval == 0 or epoch in {
             start_epoch,
             training.max_epochs,
         }:
             logger.info(
-                "epoch=%d/%d recursive_train_mse=%.7g recursive_validation_mse=%.7g "
+                "epoch=%d/%d optimizer_step=%d%s recursive_train_mse=%.7g "
+                "recursive_validation_mse=%.7g "
                 "best=%.7g@%d stale=%d grad=%.5g elapsed=%.1fs",
                 epoch,
                 training.max_epochs,
+                optimizer_step,
+                (
+                    f"/{training.max_steps}"
+                    if training.max_steps is not None
+                    else ""
+                ),
                 train_loss,
                 validation_loss,
                 best_validation_loss,
@@ -388,7 +433,10 @@ def train_recursive_gru(
                 epoch_grad_norm,
                 elapsed,
             )
-        if stale_epochs >= training.early_stopping_patience:
+        if (
+            training.early_stopping
+            and stale_epochs >= training.early_stopping_patience
+        ):
             logger.info(
                 "Recursive early stopping at epoch %d; best validation MSE %.7g at epoch %d",
                 epoch,
@@ -396,25 +444,45 @@ def train_recursive_gru(
                 best_epoch,
             )
             break
+        if reached_step_limit:
+            logger.info(
+                "Reached exact optimizer-step budget: %d steps at epoch %d",
+                optimizer_step,
+                epoch,
+            )
+            break
     frame = pd.DataFrame(records)
     frame.to_csv(history_path, index=False)
+    if training.max_steps is not None and optimizer_step < training.max_steps:
+        raise RuntimeError(
+            "training ended at "
+            f"{optimizer_step} optimizer steps before requested {training.max_steps}; "
+            "increase training.max_epochs"
+        )
     best_path = run_dir / "checkpoints/best_validation.pt"
     if not best_path.is_file():
         raise RuntimeError("recursive GRU training produced no best checkpoint")
-    _load_checkpoint(best_path, model, None, device)
+    selected_path = (
+        best_path
+        if training.early_stopping
+        else run_dir / "checkpoints/last.pt"
+    )
+    _load_checkpoint(selected_path, model, None, device)
     model.eval()
     return model, frame, last_epoch, best_validation_loss
 
 
 def _plot_history(frame: pd.DataFrame, path: Path) -> None:
     figure, axis = plt.subplots(figsize=(8, 4.5))
-    axis.plot(frame["epoch"], frame["train_recursive_mse"], label="train recursive MSE")
+    x_column = "optimizer_step" if "optimizer_step" in frame.columns else "epoch"
+    x_label = "Optimizer step" if x_column == "optimizer_step" else "Epoch"
+    axis.plot(frame[x_column], frame["train_recursive_mse"], label="train recursive MSE")
     axis.plot(
-        frame["epoch"],
+        frame[x_column],
         frame["validation_recursive_mse"],
         label="validation recursive MSE",
     )
-    axis.set(xlabel="Epoch", ylabel="MSE", title="Recursive-prefix GRU loss")
+    axis.set(xlabel=x_label, ylabel="MSE", title="Recursive-prefix GRU loss")
     axis.grid(alpha=0.25)
     axis.legend()
     figure.tight_layout()
@@ -434,6 +502,8 @@ def run_recursive_gru_baseline(
     resolved = copy.deepcopy(config)
     if smoke_test:
         resolved.training.max_epochs = 2
+        resolved.training.max_steps = None
+        resolved.training.early_stopping = True
         resolved.training.early_stopping_patience = 2
         resolved.logging.log_interval = 1
         resolved.logging.checkpoint_interval = 1
@@ -444,9 +514,16 @@ def run_recursive_gru_baseline(
         run_dir = Path(resume).resolve().parent.parent
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        budget_suffix = (
+            f"_steps{resolved.training.max_steps}"
+            if resolved.training.max_steps is not None
+            else f"_epochs{resolved.training.max_epochs}"
+        )
+        stopping_suffix = "_es" if resolved.training.early_stopping else "_noes"
         run_dir = root / "outputs/runs" / (
             f"{timestamp}_gru_recursive_baseline_{Path(target_name).stem}_"
-            f"L{resolved.data.history_length}_soh_seed{resolved.seed}"
+            f"L{resolved.data.history_length}_soh{budget_suffix}"
+            f"{stopping_suffix}_seed{resolved.seed}"
         )
     _make_run_tree(run_dir)
     logger = configure_logging(run_dir / "logs/train.log")
@@ -484,6 +561,8 @@ def run_recursive_gru_baseline(
         "weighted_meta_learning": False,
         "training_strategy": "recursive_prefix_to_future",
         "teacher_forcing_ratio": 0.0,
+        "early_stopping": resolved.training.early_stopping,
+        "max_optimizer_steps": resolved.training.max_steps,
         "target": target_name,
         "history_length": resolved.data.history_length,
         "input_features": ["soh"],
@@ -528,16 +607,25 @@ def run_recursive_gru_baseline(
         f"{target_name} recursive-prefix GRU encoder-decoder",
         metrics=result.metrics,
     )
-    best_payload = torch.load(
-        run_dir / "checkpoints/best_validation.pt", map_location="cpu", weights_only=False
+    selected_checkpoint_name = (
+        "best_validation.pt"
+        if resolved.training.early_stopping
+        else "last.pt"
+    )
+    selected_payload = torch.load(
+        run_dir / "checkpoints" / selected_checkpoint_name,
+        map_location="cpu",
+        weights_only=False,
     )
     manifest.update(
         {
             "status": "completed",
             "completed_at_utc": datetime.now(timezone.utc).isoformat(),
             "last_epoch": last_epoch,
-            "best_epoch": int(best_payload["best_epoch"]),
+            "last_optimizer_step": int(selected_payload.get("optimizer_step", 0)),
+            "best_epoch": int(selected_payload["best_epoch"]),
             "best_validation_mse": best_validation_loss,
+            "selected_checkpoint": selected_checkpoint_name,
             "metrics": result.metrics,
         }
     )
@@ -564,4 +652,3 @@ def recursive_baseline_main() -> None:
         resume=args.resume,
         smoke_test=args.smoke_test,
     )
-

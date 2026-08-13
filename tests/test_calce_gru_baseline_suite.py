@@ -20,6 +20,17 @@ def test_non_meta_pair_differs_only_in_history_length() -> None:
     assert l100.training.teacher_forcing_ratio == 0.0
 
 
+def test_l100_no_early_stopping_config_has_exact_step_budget() -> None:
+    config = load_recursive_gru_config(
+        "configs/calce_gru_baselines/"
+        "nometa_soh_l100_10000steps_no_early_stopping.yaml"
+    )
+    assert config.data.history_length == 100
+    assert config.training.max_steps == 10_000
+    assert config.training.early_stopping is False
+    assert config.training.teacher_forcing_ratio == 0.0
+
+
 def test_weighted_meta_pair_differs_only_in_history_length() -> None:
     l100 = load_config(
         "configs/calce_gru_baselines/weighted_meta_soh_l100.yaml"

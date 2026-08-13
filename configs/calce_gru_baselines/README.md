@@ -48,6 +48,20 @@ python scripts/run_calce_gru_baseline_suite.py \
 Individual results remain under `outputs/runs/`. The suite runner also writes a
 small index containing all four paths under
 `outputs/calce_gru_baseline_suites/<timestamp>/suite_manifest.json`.
+
+## L100 non-meta baseline: exact 10,000 optimizer steps
+
+This run keeps SOH-only recursive training, disables early stopping, and uses
+the model state after exactly 10,000 optimizer updates for evaluation:
+
+```bash
+python scripts/run_recursive_gru_baseline.py \
+  --target CALCE_CX2_37.pkl \
+  --config configs/calce_gru_baselines/nometa_soh_l100_10000steps_no_early_stopping.yaml
+```
+
+Validation MSE and `best_validation.pt` are still recorded for diagnostics,
+but the final trajectory and metrics use `last.pt` at optimizer step 10,000.
 The same directory contains `baseline_comparison.csv`,
 `baseline_comparison.json`, and `baseline_comparison.png` with matched
 trajectory and RUL metrics. These files are updated after each completed run,

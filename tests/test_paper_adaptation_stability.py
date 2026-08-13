@@ -43,20 +43,15 @@ def _task(query_offset: float = 0.0) -> CellTask:
     return CellTask("synthetic.pkl", np.arange(1, 13), np.concatenate([support, query]))
 
 
-def test_run_name_exposes_key_settings_and_fingerprints_full_config(tmp_path):
+def test_run_name_is_short_readable_and_fingerprints_full_config(tmp_path):
     config = _config()
     config.maml.experiment_label = "stabilized"
     path = _new_run_dir(
         config, Path(tmp_path), "adapt", "CALCE_CX2_37.pkl"
     )
     name = path.name
-    assert "_adapt_stabilized_L6_CX2_37_" in name
-    assert "flr0p05" in name
-    assert "clr0p005" in name
-    assert "al-sb" in name
-    assert "sp-ls" in name
-    assert "cp1" in name
-    assert "sc-const" in name
+    assert "_adapt_L6_stabilized_CX2_37_" in name
+    assert len(name) < 90
     assert f"c{_config_fingerprint(config)}" in name
 
     changed = copy.deepcopy(config)

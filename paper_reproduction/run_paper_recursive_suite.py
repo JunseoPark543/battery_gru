@@ -68,7 +68,7 @@ def _select_outer_learning_rate(
     )
     config.maml.optuna_trials = trial_count
     config.maml.experiment_label = (
-        f"paper-recursive-L{config.data.history_length}-tpe{trial_count}"
+        f"paper-rec-tpe{trial_count}"
     )
     save_config(config, search_config)
     optuna_run = run_experiment(_main_args(search_config, "optuna", device))
@@ -152,9 +152,7 @@ def run(args: argparse.Namespace) -> Path:
 
         config.maml.outer_learning_rate = learning_rate
         config.maml.optuna_trials = 0
-        config.maml.experiment_label = (
-            f"paper-recursive-L{history_length}-olr{learning_rate:.3g}"
-        )
+        config.maml.experiment_label = "paper-rec"
         selected_config = suite_dir / "selected_configs" / f"L{history_length}.yaml"
         save_config(config, selected_config)
         run_dir = run_experiment(_main_args(selected_config, "all", args.device))

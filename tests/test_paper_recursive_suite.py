@@ -11,6 +11,7 @@ from paper_reproduction.run_paper_recursive_suite import (
     _combine_results,
     _main_args,
 )
+from paper_reproduction.main import _new_run_dir
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +57,16 @@ def test_suite_namespace_does_not_override_disabled_gradient_clipping(tmp_path):
     assert not hasattr(args, "gradient_clip_norm")
     assert args.mode == "all"
     assert args.history_length is None
+
+
+def test_paper_recursive_run_name_stays_short(tmp_path):
+    config = load_config(
+        ROOT / "paper_reproduction/configs/paper_recursive_l500.yaml"
+    )
+    config.maml.experiment_label = "paper-rec"
+    path = _new_run_dir(config, tmp_path, "all")
+    assert "_all_L500_paper-rec_s42_c" in path.name
+    assert len(path.name) < 90
 
 
 def test_suite_combines_results_and_compares_reference(tmp_path):

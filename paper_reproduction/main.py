@@ -111,48 +111,11 @@ def _new_run_dir(
 ) -> Path:
     output = _rooted(config.paths.output_dir, root)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    label = _slug(config.maml.experiment_label)
-    reduction_alias = {
-        "point_balanced": "pb",
-        "sample_balanced": "sb",
-    }
-    sampling_alias = {
-        "random": "rnd",
-        "length_stratified": "ls",
-        "full_support": "full",
-    }
-    scheduler_alias = {
-        "constant": "const",
-        "step": "step",
-        "plateau": "plat",
-    }
-    fields = [timestamp, mode, label, f"L{config.data.history_length}"]
-    if mode in {"train", "all", "optuna"}:
-        fields.extend(
-            [
-                f"mi{config.maml.inner_steps}",
-                f"ilr{_number_tag(config.maml.inner_learning_rate)}",
-                f"olr{_number_tag(config.maml.outer_learning_rate)}",
-                f"ml-{reduction_alias[config.loss.recursive_reduction]}",
-            ]
-        )
-    if mode in {"test", "adapt", "all"}:
-        target = (
-            Path(target_cell).stem.removeprefix("CALCE_")
-            if target_cell
-            else "all-tests"
-        )
-        fields.extend(
-            [
-                _slug(target),
-                f"flr{_number_tag(config.adaptation.resolved_fast_learning_rate())}",
-                f"clr{_number_tag(config.adaptation.resolved_complete_learning_rate())}",
-                f"al-{reduction_alias[config.adaptation.recursive_loss_reduction]}",
-                f"sp-{sampling_alias[config.adaptation.sampling_mode]}",
-                f"cp{_number_tag(config.adaptation.gradient_clip_norm)}",
-                f"sc-{scheduler_alias[config.adaptation.scheduler]}",
-            ]
-        )
+    label = _slug(config.maml.experiment_label, maximum_length=18)
+    fields = [timestamp, mode, f"L{config.data.history_length}", label]
+    if target_cell is not None:
+        target = Path(target_cell).stem.removeprefix("CALCE_")
+        fields.append(_slug(target, maximum_length=16))
     fields.extend([f"s{config.seed}", f"c{_config_fingerprint(config)}"])
     return output / "_".join(fields)
 
@@ -254,7 +217,7 @@ def run(args: argparse.Namespace) -> Path:
         "algorithm": "full_second_order_maml",
         "weighted_meta_learning": False,
         "run_name": run_dir.name,
-        "run_name_schema_version": 2,
+        "run_name_schema_version": 3,
         "config_fingerprint": _config_fingerprint(config),
         "config": config.to_dict(),
     }
