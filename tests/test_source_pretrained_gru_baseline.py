@@ -100,6 +100,7 @@ def test_source_pretrained_smoke_pipeline_uses_sources_then_target_support(
         "metrics/transfer_metrics_summary.csv",
         "figures/pretraining_loss.png",
         "figures/target_soh_transfer_full.png",
+        "figures/target_soh_transfer_0_vs_full.png",
     ]
     for relative in required:
         assert (run_dir / relative).is_file(), relative

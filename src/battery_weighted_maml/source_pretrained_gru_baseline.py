@@ -31,7 +31,7 @@ from .data.task_views import (
     TargetSupportView,
 )
 from .evaluation.evaluator import EvaluationResult, evaluate_target
-from .evaluation.plots import plot_target_prediction
+from .evaluation.plots import plot_target_prediction, plot_transfer_zero_vs_full
 from .logging_utils import configure_logging, parameter_counts, resolve_device
 from .models.gru_seq2seq import GRUSeq2Seq, masked_mse
 from .seed import capture_rng_state, make_generator, restore_rng_state, seed_everything
@@ -1250,6 +1250,7 @@ def run_source_pretrained_gru_baseline(
     manifest_path.write_text(
         json.dumps(manifest, indent=2, allow_nan=True), encoding="utf-8"
     )
+    plot_transfer_zero_vs_full(run_dir)
     logger.info("Completed source-pretrained GRU baseline: %s", run_dir)
     return run_dir
 
