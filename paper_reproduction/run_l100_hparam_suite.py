@@ -25,6 +25,7 @@ import pandas as pd
 
 from .config import ExperimentConfig, load_config, save_config
 from .main import run as run_experiment
+from .plot_l100_complete_grid import plot_complete_grid
 from .run_paper_recursive_suite import _main_args
 
 
@@ -185,6 +186,8 @@ def combine_results(records: list[dict[str, Any]], suite_dir: Path) -> None:
             target,
             suite_dir / "hyperparameter_heatmaps.png",
         )
+    if len(records) == 16:
+        plot_complete_grid(suite_dir, target_cell="CALCE_CX2_37.pkl")
 
 
 def _plot_source_ranking(frame: pd.DataFrame, destination: Path) -> None:
