@@ -1,0 +1,134 @@
+{
+  "status": "completed",
+  "started_at_utc": "2026-08-13T19:06:46.685564+00:00",
+  "mode": "all",
+  "device": "cuda",
+  "seed": 42,
+  "history_length": 100,
+  "train_cells": [
+    "CALCE_CX2_16.pkl",
+    "CALCE_CX2_33.pkl",
+    "CALCE_CX2_34.pkl",
+    "CALCE_CX2_35.pkl",
+    "CALCE_CX2_36.pkl"
+  ],
+  "test_cells": [
+    "CALCE_CX2_37.pkl",
+    "CALCE_CX2_38.pkl"
+  ],
+  "algorithm": "full_second_order_maml",
+  "weighted_meta_learning": false,
+  "run_name": "20260814_040646_683194_all_L100_hp-p1-ilr0p025_s42_c22792222",
+  "run_name_schema_version": 3,
+  "config_fingerprint": "22792222",
+  "config": {
+    "seed": 42,
+    "device": "cuda",
+    "paths": {
+      "calce_dir": "data/CALCE",
+      "output_dir": "outputs/paper_recursive_reproduction/l100_hparam_suites/20260813_223407_700305/runs"
+    },
+    "data": {
+      "history_length": 100,
+      "train_cells": [
+        "CALCE_CX2_16.pkl",
+        "CALCE_CX2_33.pkl",
+        "CALCE_CX2_34.pkl",
+        "CALCE_CX2_35.pkl",
+        "CALCE_CX2_36.pkl"
+      ],
+      "test_cells": [
+        "CALCE_CX2_37.pkl",
+        "CALCE_CX2_38.pkl"
+      ]
+    },
+    "model": {
+      "input_size": 1,
+      "hidden_size": 64,
+      "num_layers": 1,
+      "dropout": 0.0,
+      "predicted_input_probability": 1.0,
+      "weight_initialization": "pytorch_default"
+    },
+    "loss": {
+      "kind": "mse",
+      "recursive_reduction": "sample_balanced"
+    },
+    "maml": {
+      "max_epochs": 500,
+      "meta_batch_size": 5,
+      "inner_learning_rate": 0.025,
+      "inner_steps": 1,
+      "inner_steps_candidates": [
+        1,
+        3,
+        5
+      ],
+      "multi_step_query_weights": {
+        "1": 1.0
+      },
+      "experiment_label": "hp-p1-ilr0p025",
+      "inner_batch_size": 64,
+      "outer_learning_rate": 0.001,
+      "query_batch_size": 1,
+      "gradient_clip_norm": null,
+      "early_stopping": false,
+      "early_stopping_patience": 30,
+      "early_stopping_min_delta": 1e-07,
+      "log_interval": 1,
+      "checkpoint_interval": 1,
+      "optuna_trials": 0,
+      "optuna_lr_low": 1e-05,
+      "optuna_lr_high": 0.01
+    },
+    "adaptation": {
+      "learning_rate": null,
+      "fast_learning_rate": 0.025,
+      "complete_learning_rate": 0.025,
+      "complete_learning_rate_candidates": [
+        0.05
+      ],
+      "batch_size": 64,
+      "fast_steps": [
+        0,
+        1,
+        3,
+        5
+      ],
+      "complete_max_steps": 500,
+      "complete_patience": 30,
+      "complete_min_delta": 1e-06,
+      "recursive_loss_reduction": "sample_balanced",
+      "fast_sampling_mode": "random",
+      "sampling_mode": "random",
+      "length_stratified_bins": 5,
+      "checkpoint_selection": "paper_query_early_stopping",
+      "validation_ratio": 0.2,
+      "minimum_validation_length": 20,
+      "maximum_validation_length": 100,
+      "scheduler": "constant",
+      "scheduler_step_size": 50,
+      "scheduler_gamma": 0.5,
+      "scheduler_patience": 10,
+      "gradient_clip_norm": null,
+      "gradient_clip_candidates": [
+        null
+      ],
+      "relative_update_warning_threshold": 0.5,
+      "diagnostics": true,
+      "oracle_diagnostics": true
+    },
+    "evaluation": {
+      "eol_threshold": 0.7,
+      "forecast_mode": "paper",
+      "max_prediction_length": null,
+      "max_forecast_cycle": 2000
+    }
+  },
+  "best_epoch": 461,
+  "best_meta_loss": 0.0019441775977611542,
+  "last_epoch": 500,
+  "meta_test_rows": 10,
+  "checkpoint_used_for_test": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/paper_recursive_reproduction/l100_hparam_suites/20260813_223407_700305/runs/20260814_040646_683194_all_L100_hp-p1-ilr0p025_s42_c22792222/checkpoints/best_meta_model.pt",
+  "completed_at_utc": "2026-08-13T19:27:45.418536+00:00"
+}
