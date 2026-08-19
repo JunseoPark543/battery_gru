@@ -1,5 +1,7 @@
 # Direct Target-aware Weighted MAML for Battery SOH Forecasting
 
+새 BatteryLife MATR 기반 SOH trajectory 실험은 [MATR_PARTIAL_IV_ANP.md](MATR_PARTIAL_IV_ANP.md)에 독립적으로 정리되어 있습니다. 이 파이프라인은 RUL/EOL을 예측하지 않으며, partial discharge I–V로 조건화한 Attentive Neural Process를 사용합니다.
+
 논문식 unweighted full second-order MAML 재현 코드는 기존 실험과 분리된
 [`paper_reproduction/`](paper_reproduction/) 패키지에 있습니다. 기본 L=500
 전체 학습과 CX2_37/CX2_38 meta-test는 다음 명령으로 실행합니다.

@@ -1,0 +1,247 @@
+"""Leakage-safe fixed-q discharge and partial intra-cell I-V features."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Sequence
+
+import numpy as np
+
+from .config import DataConfig, QGridConfig
+from .data import CellData, CycleData, DischargeCurve
+
+
+class EpisodeUnavailable(ValueError):
+    """Raised when a current cycle cannot form a leakage-safe I-V episode."""
+
+
+@dataclass(frozen=True)
+class GridCurve:
+    voltage_v: np.ndarray
+    current_a_magnitude: np.ndarray
+    mask: np.ndarray
+
+
+@dataclass(frozen=True)
+class FastFeature:
+    values: np.ndarray  # [3, Q]: delta V, |I|, observation mask
+    mask: np.ndarray
+    beta: float
+    current_cycle: int
+    reference_cycles: tuple[int, ...]
+
+
+@dataclass
+class FoldScalers:
+    fit_cell_ids: list[str]
+    soh_mean: float
+    soh_std: float
+    max_cycle_train: int
+    delta_voltage_mean: float
+    delta_voltage_std: float
+    current_mean: float
+    current_std: float
+
+    @classmethod
+    def fit(
+        cls,
+        train_cells: Sequence[CellData],
+        processor: "PartialIVProcessor",
+        minimum_current_position: int,
+    ) -> "FoldScalers":
+        if not train_cells:
+            raise ValueError("cannot fit scalers without training cells")
+        cell_ids = [cell.cell_id for cell in train_cells]
+        if len(set(cell_ids)) != len(cell_ids):
+            raise ValueError("training scaler cell IDs must be unique")
+        soh = np.concatenate([cell.soh for cell in train_cells])
+        max_cycle = max(int(cell.cycle_numbers.max()) for cell in train_cells)
+        delta_values: list[np.ndarray] = []
+        current_values: list[np.ndarray] = []
+        for cell in train_cells:
+            for position in range(minimum_current_position, len(cell.cycles)):
+                current_cycle = cell.cycles[position]
+                if current_cycle.discharge is None:
+                    continue
+                try:
+                    delta, current, mask, _ = processor.raw_feature(
+                        cell, current_cycle.cycle_number
+                    )
+                except EpisodeUnavailable:
+                    continue
+                delta_values.append(delta[mask])
+                current_values.append(current[mask])
+        if not delta_values or not current_values:
+            raise ValueError("training cells contain no valid partial I-V features")
+        delta = np.concatenate(delta_values)
+        current = np.concatenate(current_values)
+        return cls(
+            fit_cell_ids=sorted(cell_ids),
+            soh_mean=float(np.mean(soh)),
+            soh_std=_safe_std(soh),
+            max_cycle_train=max_cycle,
+            delta_voltage_mean=float(np.mean(delta)),
+            delta_voltage_std=_safe_std(delta),
+            current_mean=float(np.mean(current)),
+            current_std=_safe_std(current),
+        )
+
+    def transform_soh(self, values: np.ndarray) -> np.ndarray:
+        return (np.asarray(values, dtype=np.float64) - self.soh_mean) / self.soh_std
+
+    def inverse_soh(self, values: np.ndarray) -> np.ndarray:
+        return np.asarray(values, dtype=np.float64) * self.soh_std + self.soh_mean
+
+    def transform_cycles(self, cycles: np.ndarray) -> np.ndarray:
+        # Do not clip test cycles that exceed the training maximum.
+        return np.asarray(cycles, dtype=np.float64) / float(self.max_cycle_train)
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+    def save(self, path: str | Path) -> None:
+        destination = Path(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> "FoldScalers":
+        return cls(**payload)  # type: ignore[arg-type]
+
+    @classmethod
+    def load(cls, path: str | Path) -> "FoldScalers":
+        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
+def _safe_std(values: np.ndarray) -> float:
+    value = float(np.std(values))
+    return value if np.isfinite(value) and value > 1.0e-8 else 1.0
+
+
+class PartialIVProcessor:
+    def __init__(self, grid_config: QGridConfig, data_config: DataConfig):
+        self.grid = np.linspace(
+            grid_config.minimum,
+            grid_config.maximum,
+            grid_config.num_points,
+            dtype=np.float64,
+        )
+        self.grid_config = grid_config
+        self.data_config = data_config
+
+    def interpolate(self, curve: DischargeCurve) -> GridCurve:
+        """Interpolate only inside the observed q range; never extrapolate."""
+        if not np.all(np.diff(curve.q) > 0):
+            raise ValueError("discharge q must be strictly increasing before interpolation")
+        mask = (self.grid >= curve.q[0]) & (self.grid <= curve.q[-1])
+        voltage = np.zeros_like(self.grid)
+        current = np.zeros_like(self.grid)
+        if np.any(mask):
+            voltage[mask] = np.interp(self.grid[mask], curve.q, curve.voltage_v)
+            current[mask] = np.interp(
+                self.grid[mask], curve.q, curve.current_a_magnitude
+            )
+        return GridCurve(voltage, current, mask)
+
+    def _reference(
+        self, cell: CellData, current_cycle_number: int
+    ) -> tuple[np.ndarray, np.ndarray, tuple[int, ...]]:
+        previous = [
+            cycle
+            for cycle in cell.cycles
+            if cycle.cycle_number < current_cycle_number and cycle.discharge is not None
+        ]
+        by_number = {cycle.cycle_number: cycle for cycle in previous}
+        selected: list[CycleData] = [
+            by_number[number]
+            for number in self.data_config.reference_cycles
+            if number in by_number
+        ]
+        selected_numbers = {cycle.cycle_number for cycle in selected}
+        for cycle in previous:
+            if len(selected) >= self.data_config.minimum_reference_cycles:
+                break
+            if cycle.cycle_number not in selected_numbers:
+                selected.append(cycle)
+                selected_numbers.add(cycle.cycle_number)
+        if len(selected) < self.data_config.minimum_reference_cycles:
+            raise EpisodeUnavailable(
+                f"{cell.cell_id} cycle {current_cycle_number}: only {len(selected)} "
+                "valid earlier reference cycles"
+            )
+        curves = [self.interpolate(cycle.discharge) for cycle in selected if cycle.discharge]
+        voltage_stack = np.stack([curve.voltage_v for curve in curves])
+        mask_stack = np.stack([curve.mask for curve in curves])
+        counts = mask_stack.sum(axis=0)
+        reference_mask = counts >= self.data_config.minimum_reference_cycles
+        reference = np.zeros_like(self.grid)
+        masked_voltage = np.where(mask_stack, voltage_stack, np.nan)
+        # Every selected column has at least minimum_reference_cycles finite
+        # observations, so compute only there and avoid all-NaN warnings outside it.
+        reference[reference_mask] = np.nanmedian(
+            masked_voltage[:, reference_mask], axis=0
+        )
+        return reference, reference_mask, tuple(cycle.cycle_number for cycle in selected)
+
+    def raw_feature(
+        self, cell: CellData, current_cycle_number: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[int, ...]]:
+        current_cycle = cell.cycle_by_number(current_cycle_number)
+        if current_cycle.discharge is None:
+            raise EpisodeUnavailable(
+                f"{cell.cell_id} cycle {current_cycle_number}: current discharge unavailable"
+            )
+        current_curve = self.interpolate(current_cycle.discharge)
+        reference, reference_mask, reference_cycles = self._reference(
+            cell, current_cycle_number
+        )
+        valid = current_curve.mask & reference_mask
+        if not np.any(valid):
+            raise EpisodeUnavailable(
+                f"{cell.cell_id} cycle {current_cycle_number}: no current/reference q overlap"
+            )
+        delta = np.zeros_like(self.grid)
+        delta[valid] = current_curve.voltage_v[valid] - reference[valid]
+        current = np.zeros_like(self.grid)
+        current[valid] = current_curve.current_a_magnitude[valid]
+        return delta, current, valid, reference_cycles
+
+    def build(
+        self,
+        cell: CellData,
+        current_cycle_number: int,
+        beta: float,
+        scalers: FoldScalers,
+    ) -> FastFeature:
+        if not 0.0 <= beta <= 1.0:
+            raise ValueError("beta must lie in [0,1]")
+        delta, current, valid, reference_cycles = self.raw_feature(
+            cell, current_cycle_number
+        )
+        if beta == 0.0:
+            observed = np.zeros_like(valid)
+        else:
+            q_beta = self.grid_config.minimum + beta * (
+                self.grid_config.maximum - self.grid_config.minimum
+            )
+            observed = valid & (self.grid <= q_beta + 1.0e-12)
+        normalized_delta = np.zeros_like(delta)
+        normalized_current = np.zeros_like(current)
+        normalized_delta[observed] = (
+            delta[observed] - scalers.delta_voltage_mean
+        ) / scalers.delta_voltage_std
+        normalized_current[observed] = (
+            current[observed] - scalers.current_mean
+        ) / scalers.current_std
+        values = np.stack(
+            [normalized_delta, normalized_current, observed.astype(np.float64)], axis=0
+        ).astype(np.float32)
+        return FastFeature(
+            values=values,
+            mask=observed,
+            beta=float(beta),
+            current_cycle=current_cycle_number,
+            reference_cycles=reference_cycles,
+        )
