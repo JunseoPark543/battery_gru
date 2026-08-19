@@ -57,8 +57,12 @@ training:
   validation_episodes_per_cell: 3
   early_stopping_patience: 10
   checkpoint_interval: 500
-  log_interval: 50
+  # Detailed diagnostics are written every 10 attempted optimizer steps.
+  log_interval: 10
   use_amp: true
+  # Lower than PyTorch's 65536 default to avoid first-step fp16 overflow.
+  amp_initial_scale: 1024.0
+  max_consecutive_amp_overflows: 20
   deterministic: true
 
 evaluation:

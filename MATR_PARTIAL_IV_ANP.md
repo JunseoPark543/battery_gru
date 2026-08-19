@@ -65,6 +65,26 @@ python -m battery_weighted_maml.matr_anp.inspect_data \
 
 학습 loss는 masked Gaussian NLL과 analytic diagonal-Gaussian KL로 구성된 ANP ELBO이며 KL warm-up, gradient clipping, AMP, early stopping, best/last checkpoint와 resume을 지원한다.
 
+AMP는 network forward에 사용하되 Gaussian NLL/KL의 log·division 연산은 float32로 계산하며, 초기 scale `1024`에서 시작한다. fp16 gradient overflow가 발생하면 해당 optimizer update만 건너뛰고 scale을 절반으로 낮춘 후 `last.pt`와 history를 저장한다. 연속 20회 overflow일 때만 중단하므로 일시적인 첫-step overflow 때문에 전체 suite가 종료되지 않는다. deterministic 모드에서는 CUDA memory-efficient/flash attention을 끄고 math attention을 사용한다.
+
+학습 로그는 기본 10 step마다 다음 정보를 기록한다.
+
+- loss, NLL, KL, KL weight와 gradient norm
+- AMP scale 변화 및 실제 optimizer update/overflow 누적 수
+- sampling된 cell/current cycle/beta와 context/target point 수
+- raw·정규화 target 범위, prediction mean/std 범위
+- latent prior/posterior std 범위와 I–V 관측 비율
+- GPU allocated/reserved memory, elapsed/ETA
+- validation 시 cell별 RMSE
+
+실시간 확인:
+
+```bash
+tail -f outputs/matr_partial_iv_anp/<RUN>/logs/train.log
+```
+
+같은 내용은 분석하기 쉬운 형태로 `<RUN>/training/history.csv`에도 저장된다. suite 자체가 실패하면 `suite_<timestamp>/suite_manifest.json`에 실패 모델·fold·예외 traceback이 기록된다.
+
 ## 합성 데이터 smoke test
 
 실제 데이터를 다운로드하지 않고 SOH-only/Partial I–V 각각 1 optimizer step, checkpoint reload, 평가, plot, streaming을 CPU에서 확인한다.

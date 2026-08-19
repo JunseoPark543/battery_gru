@@ -56,6 +56,32 @@ def _restore_rng(state: dict[str, Any], rng: np.random.Generator) -> None:
         )
 
 
+def _masked_range(values: torch.Tensor, mask: torch.Tensor) -> tuple[float, float]:
+    selected = values.masked_select(mask.unsqueeze(-1))
+    if selected.numel() == 0:
+        return float("nan"), float("nan")
+    return float(selected.min().detach().cpu()), float(selected.max().detach().cpu())
+
+
+def _nonfinite_gradient_names(model: nn.Module, limit: int = 8) -> list[str]:
+    names = []
+    for name, parameter in model.named_parameters():
+        if parameter.grad is not None and not torch.isfinite(parameter.grad).all():
+            names.append(name)
+            if len(names) >= limit:
+                break
+    return names
+
+
+def _gpu_memory_mb(device: torch.device) -> tuple[float, float]:
+    if device.type != "cuda":
+        return 0.0, 0.0
+    return (
+        torch.cuda.memory_allocated(device) / (1024.0**2),
+        torch.cuda.memory_reserved(device) / (1024.0**2),
+    )
+
+
 def _checkpoint_payload(
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -96,9 +122,10 @@ def _validation_rmse(
     model_name: str,
     config: ExperimentConfig,
     device: torch.device,
-) -> float:
+) -> tuple[float, dict[str, float]]:
     model.eval()
     cell_values: list[float] = []
+    by_cell: dict[str, float] = {}
     alphas = config.episode.evaluation_alphas
     requested = config.training.validation_episodes_per_cell
     selected_alphas = [alphas[index % len(alphas)] for index in range(requested)]
@@ -135,11 +162,13 @@ def _validation_rmse(
                     float(np.sqrt(np.mean(np.square(predicted - episode.target_soh_raw))))
                 )
             if episode_errors:
-                cell_values.append(float(np.mean(episode_errors)))
+                value = float(np.mean(episode_errors))
+                cell_values.append(value)
+                by_cell[cell.cell_id] = value
     model.train()
     if not cell_values:
         raise ValueError("validation produced no valid cell episodes")
-    return float(np.mean(cell_values))
+    return float(np.mean(cell_values)), by_cell
 
 
 def train_run(
@@ -226,9 +255,16 @@ def train_run(
     optimizer = torch.optim.Adam(model.parameters(), lr=resolved.training.learning_rate)
     amp_enabled = bool(resolved.training.use_amp and device.type == "cuda")
     try:
-        amp_scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
-    except AttributeError:  # PyTorch < 2.3 compatibility
-        amp_scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
+        amp_scaler = torch.amp.GradScaler(
+            "cuda",
+            enabled=amp_enabled,
+            init_scale=resolved.training.amp_initial_scale,
+        )
+    except (AttributeError, TypeError):  # PyTorch < 2.3 compatibility
+        amp_scaler = torch.cuda.amp.GradScaler(
+            enabled=amp_enabled,
+            init_scale=resolved.training.amp_initial_scale,
+        )
     rng = np.random.default_rng(resolved.seed + fold * 100_003)
     start_step = 1
     best_step = 0
@@ -265,10 +301,51 @@ def train_run(
         "data_root": str(Path(data_root).resolve()),
     }
     write_json(run_dir / "run_manifest.json", manifest)
+    train_soh = np.concatenate([cell.soh for cell in train_cells])
     logger.info(
-        "MATR fold=%d model=%s parameters=%d hidden=%d train=%s validation=%s test=%s",
-        fold, model_name, model_spec.parameter_count, model_spec.hidden_dim,
-        split.train_cells, split.validation_cells, split.test_cells,
+        "MATR fold=%d model=%s parameters=%d hidden=%d train_cells=%d "
+        "validation_cells=%d test_cells=%d",
+        fold,
+        model_name,
+        model_spec.parameter_count,
+        model_spec.hidden_dim,
+        len(split.train_cells),
+        len(split.validation_cells),
+        len(split.test_cells),
+    )
+    logger.info("held_out_test_cells=%s", split.test_cells)
+    logger.info(
+        "train_data soh_min=%.7g soh_median=%.7g soh_max=%.7g cycles_max=%d "
+        "valid_cells=%d invalid_files=%d",
+        float(np.min(train_soh)),
+        float(np.median(train_soh)),
+        float(np.max(train_soh)),
+        scalers.max_cycle_train,
+        len(cells),
+        int((audit["status"] != "valid").sum()),
+    )
+    logger.info(
+        "scalers soh_mean=%.7g soh_std=%.7g delta_v_mean=%.7g delta_v_std=%.7g "
+        "current_mean=%.7g current_std=%.7g fit_cells=%d",
+        scalers.soh_mean,
+        scalers.soh_std,
+        scalers.delta_voltage_mean,
+        scalers.delta_voltage_std,
+        scalers.current_mean,
+        scalers.current_std,
+        len(scalers.fit_cell_ids),
+    )
+    logger.info(
+        "runtime device=%s amp=%s amp_initial_scale=%.7g deterministic=%s "
+        "batch_size=%d lr=%.7g grad_clip=%.7g log_interval=%d",
+        device,
+        amp_enabled,
+        float(amp_scaler.get_scale()),
+        resolved.training.deterministic,
+        resolved.training.batch_size,
+        resolved.training.learning_rate,
+        resolved.training.gradient_clip_norm,
+        resolved.training.log_interval,
     )
 
     began = time.perf_counter()
@@ -278,6 +355,14 @@ def train_run(
         unit="step",
     )
     last_step = start_step - 1
+    total_amp_overflows = sum(
+        1
+        for item in records
+        if pd.notna(item.get("optimizer_step_skipped", False))
+        and bool(item.get("optimizer_step_skipped", False))
+    )
+    successful_updates = len(records) - total_amp_overflows
+    consecutive_amp_overflows = 0
     for step in progress:
         episodes = []
         attempts = 0
@@ -311,7 +396,15 @@ def train_run(
                 target_mask=batch.target_mask,
                 iv_feature=batch.iv_feature,
             )
-            losses = anp_elbo_loss(output, batch.target_y, batch.target_mask, kl_weight)
+        # Keep the network forward in AMP, but evaluate log/std/division terms
+        # of the probabilistic ELBO in float32 for numerical stability.
+        loss_output = {name: value.float() for name, value in output.items()}
+        losses = anp_elbo_loss(
+            loss_output,
+            batch.target_y.float(),
+            batch.target_mask,
+            kl_weight,
+        )
         if not torch.isfinite(losses["loss"]):
             raise FloatingPointError(
                 f"non-finite ANP loss at step {step}: "
@@ -319,17 +412,26 @@ def train_run(
                 f"nll={float(losses['nll'].detach().cpu())}, "
                 f"kl={float(losses['kl'].detach().cpu())}"
             )
+        amp_scale_before = float(amp_scaler.get_scale())
         amp_scaler.scale(losses["loss"]).backward()
         amp_scaler.unscale_(optimizer)
-        gradient_norm = float(
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(), resolved.training.gradient_clip_norm
-            ).detach().cpu()
+        nonfinite_gradient_names = _nonfinite_gradient_names(model)
+        if nonfinite_gradient_names:
+            gradient_norm = float("inf")
+        else:
+            gradient_norm = float(
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), resolved.training.gradient_clip_norm
+                ).detach().cpu()
+            )
+
+        raw_targets = np.concatenate([episode.target_soh_raw for episode in episodes])
+        target_min, target_max = _masked_range(batch.target_y, batch.target_mask)
+        prediction_min, prediction_max = _masked_range(output["mean"], batch.target_mask)
+        prediction_std_min, prediction_std_max = _masked_range(
+            output["std"], batch.target_mask
         )
-        if not math.isfinite(gradient_norm):
-            raise FloatingPointError(f"non-finite gradient norm at step {step}")
-        amp_scaler.step(optimizer)
-        amp_scaler.update()
+        allocated_mb, reserved_mb = _gpu_memory_mb(device)
         record: dict[str, Any] = {
             "step": step,
             "loss": float(losses["loss"].detach().cpu()),
@@ -337,20 +439,177 @@ def train_run(
             "kl": float(losses["kl"].detach().cpu()),
             "kl_weight": kl_weight,
             "gradient_norm": gradient_norm,
+            "optimizer_step_skipped": False,
+            "amp_scale_before": amp_scale_before,
+            "amp_scale_after": np.nan,
+            "batch_sampling_attempts": attempts,
+            "batch_cells": "|".join(episode.cell_id for episode in episodes),
+            "batch_current_cycles": "|".join(
+                str(episode.current_cycle) for episode in episodes
+            ),
+            "batch_betas": "|".join(f"{episode.beta:g}" for episode in episodes),
+            "context_points_min": min(len(episode.context_x) for episode in episodes),
+            "context_points_max": max(len(episode.context_x) for episode in episodes),
+            "target_points_min": min(len(episode.target_x) for episode in episodes),
+            "target_points_max": max(len(episode.target_x) for episode in episodes),
+            "target_soh_raw_min": float(np.min(raw_targets)),
+            "target_soh_raw_max": float(np.max(raw_targets)),
+            "target_normalized_min": target_min,
+            "target_normalized_max": target_max,
+            "prediction_mean_min": prediction_min,
+            "prediction_mean_max": prediction_max,
+            "prediction_std_min": prediction_std_min,
+            "prediction_std_max": prediction_std_max,
+            "prior_std_min": float(output["prior_std"].min().detach().cpu()),
+            "prior_std_max": float(output["prior_std"].max().detach().cpu()),
+            "posterior_std_min": float(output["posterior_std"].min().detach().cpu()),
+            "posterior_std_max": float(output["posterior_std"].max().detach().cpu()),
+            "iv_observed_fraction_mean": float(
+                batch.iv_feature[:, 2, :].mean().detach().cpu()
+            ),
+            "gpu_allocated_mb": allocated_mb,
+            "gpu_reserved_mb": reserved_mb,
+            "learning_rate": float(optimizer.param_groups[0]["lr"]),
             "validation_rmse": np.nan,
             "elapsed_seconds": time.perf_counter() - began,
         }
+
+        if not math.isfinite(gradient_norm):
+            record["optimizer_step_skipped"] = True
+            record["nonfinite_gradient_parameters"] = "|".join(
+                nonfinite_gradient_names
+            )
+            if not amp_enabled:
+                logger.error(
+                    "Non-finite gradient without AMP at step=%d loss=%.7g nll=%.7g "
+                    "kl=%.7g target_raw=[%.7g,%.7g] prediction_std=[%.7g,%.7g] "
+                    "parameters=%s",
+                    step,
+                    record["loss"],
+                    record["nll"],
+                    record["kl"],
+                    record["target_soh_raw_min"],
+                    record["target_soh_raw_max"],
+                    record["prediction_std_min"],
+                    record["prediction_std_max"],
+                    nonfinite_gradient_names,
+                )
+                raise FloatingPointError(f"non-finite gradient norm at step {step}")
+
+            # A first-step fp16 overflow is expected occasionally. GradScaler's
+            # normal policy is to skip that optimizer update and lower its scale.
+            amp_scaler.update(new_scale=max(1.0, amp_scale_before / 2.0))
+            optimizer.zero_grad(set_to_none=True)
+            record["amp_scale_after"] = float(amp_scaler.get_scale())
+            total_amp_overflows += 1
+            consecutive_amp_overflows += 1
+            records.append(record)
+            last_step = step
+            checkpoint = _checkpoint_payload(
+                model,
+                optimizer,
+                amp_scaler,
+                step,
+                best_step,
+                best_validation_rmse,
+                stale_validations,
+                resolved,
+                model_spec,
+                split,
+                scalers,
+                rng,
+            )
+            _atomic_save(checkpoint, run_dir / "checkpoints/last.pt")
+            pd.DataFrame(records).to_csv(history_path, index=False)
+            logger.warning(
+                "AMP overflow step=%d/%d update=SKIPPED scale=%.7g->%.7g "
+                "consecutive=%d/%d loss=%.7g nll=%.7g kl=%.7g "
+                "target_raw=[%.7g,%.7g] target_norm=[%.7g,%.7g] "
+                "pred_mean=[%.7g,%.7g] pred_std=[%.7g,%.7g] bad_gradients=%s",
+                step,
+                resolved.training.max_steps,
+                amp_scale_before,
+                record["amp_scale_after"],
+                consecutive_amp_overflows,
+                resolved.training.max_consecutive_amp_overflows,
+                record["loss"],
+                record["nll"],
+                record["kl"],
+                record["target_soh_raw_min"],
+                record["target_soh_raw_max"],
+                target_min,
+                target_max,
+                prediction_min,
+                prediction_max,
+                prediction_std_min,
+                prediction_std_max,
+                nonfinite_gradient_names,
+            )
+            logger.warning(
+                "overflow_batch cells=%s cycles=%s betas=%s context_points=%d..%d "
+                "target_points=%d..%d iv_observed_mean=%.5f gpu_mb=%.1f/%.1f "
+                "checkpoint=%s",
+                record["batch_cells"],
+                record["batch_current_cycles"],
+                record["batch_betas"],
+                record["context_points_min"],
+                record["context_points_max"],
+                record["target_points_min"],
+                record["target_points_max"],
+                record["iv_observed_fraction_mean"],
+                allocated_mb,
+                reserved_mb,
+                run_dir / "checkpoints/last.pt",
+            )
+            progress.set_postfix(
+                loss=f"{record['loss']:.4g}",
+                status="amp-overflow-skip",
+                scale=f"{record['amp_scale_after']:.0f}",
+            )
+            if (
+                consecutive_amp_overflows
+                >= resolved.training.max_consecutive_amp_overflows
+            ):
+                manifest.update(
+                    {
+                        "status": "failed",
+                        "failed_at_utc": datetime.now(timezone.utc).isoformat(),
+                        "last_step": step,
+                        "successful_optimizer_updates": successful_updates,
+                        "amp_overflow_skips": total_amp_overflows,
+                        "failure": "consecutive non-finite AMP gradients",
+                    }
+                )
+                write_json(run_dir / "run_manifest.json", manifest)
+                raise FloatingPointError(
+                    f"AMP gradients stayed non-finite for "
+                    f"{consecutive_amp_overflows} consecutive steps; see "
+                    f"{run_dir / 'logs/train.log'} and "
+                    f"{run_dir / 'training/history.csv'}"
+                )
+            continue
+
+        amp_scaler.step(optimizer)
+        amp_scaler.update()
+        record["amp_scale_after"] = float(amp_scaler.get_scale())
+        successful_updates += 1
+        consecutive_amp_overflows = 0
 
         validate_now = (
             step % resolved.training.validation_interval == 0
             or step == resolved.training.max_steps
         )
         improved = False
+        validation_by_cell: dict[str, float] = {}
         if validate_now:
-            validation_rmse = _validation_rmse(
+            validation_rmse, validation_by_cell = _validation_rmse(
                 model, validation_cells, sampler, model_name, resolved, device
             )
             record["validation_rmse"] = validation_rmse
+            record["validation_cell_rmse"] = "|".join(
+                f"{cell_id}:{value:.7g}"
+                for cell_id, value in sorted(validation_by_cell.items())
+            )
             improved = validation_rmse < best_validation_rmse - 1.0e-10
             if improved:
                 best_validation_rmse = validation_rmse
@@ -375,16 +634,66 @@ def train_run(
         progress.set_postfix(
             loss=f"{record['loss']:.4g}",
             val=(f"{record['validation_rmse']:.4g}" if validate_now else "-"),
+            scale=f"{record['amp_scale_after']:.0f}" if amp_enabled else "off",
         )
         if step % resolved.training.log_interval == 0 or validate_now or step == start_step:
+            completed_attempts = step - start_step + 1
+            eta_seconds = (
+                record["elapsed_seconds"]
+                / max(1, completed_attempts)
+                * (resolved.training.max_steps - step)
+            )
             logger.info(
                 "step=%d/%d loss=%.7g nll=%.7g kl=%.7g kl_weight=%.4f "
-                "grad=%.6g validation_rmse=%s best=%.7g@%d stale=%d",
+                "grad=%.6g update=APPLIED successful_updates=%d amp_scale=%.7g->%.7g "
+                "validation_rmse=%s best=%.7g@%d stale=%d overflows=%d "
+                "elapsed=%.1fs eta=%.1fs gpu_mb=%.1f/%.1f",
                 step, resolved.training.max_steps, record["loss"], record["nll"],
-                record["kl"], kl_weight, gradient_norm,
+                record["kl"], kl_weight, gradient_norm, successful_updates,
+                record["amp_scale_before"], record["amp_scale_after"],
                 f"{record['validation_rmse']:.7g}" if validate_now else "-",
                 best_validation_rmse, best_step, stale_validations,
+                total_amp_overflows, record["elapsed_seconds"], eta_seconds,
+                allocated_mb, reserved_mb,
             )
+            logger.info(
+                "batch step=%d cells=%s cycles=%s betas=%s attempts=%d "
+                "context_points=%d..%d target_points=%d..%d "
+                "target_raw=[%.7g,%.7g] target_norm=[%.7g,%.7g] "
+                "pred_mean=[%.7g,%.7g] pred_std=[%.7g,%.7g] "
+                "prior_std=[%.7g,%.7g] posterior_std=[%.7g,%.7g] "
+                "iv_observed_mean=%.5f lr=%.7g",
+                step,
+                record["batch_cells"],
+                record["batch_current_cycles"],
+                record["batch_betas"],
+                record["batch_sampling_attempts"],
+                record["context_points_min"],
+                record["context_points_max"],
+                record["target_points_min"],
+                record["target_points_max"],
+                record["target_soh_raw_min"],
+                record["target_soh_raw_max"],
+                record["target_normalized_min"],
+                record["target_normalized_max"],
+                record["prediction_mean_min"],
+                record["prediction_mean_max"],
+                record["prediction_std_min"],
+                record["prediction_std_max"],
+                record["prior_std_min"],
+                record["prior_std_max"],
+                record["posterior_std_min"],
+                record["posterior_std_max"],
+                record["iv_observed_fraction_mean"],
+                record["learning_rate"],
+            )
+            if validate_now:
+                logger.info(
+                    "validation_per_cell step=%d mean_rmse=%.7g values=%s",
+                    step,
+                    record["validation_rmse"],
+                    record["validation_cell_rmse"],
+                )
         last_step = step
         if validate_now and stale_validations >= resolved.training.early_stopping_patience:
             logger.info("Early stopping at step %d; best step=%d", step, best_step)
@@ -397,6 +706,8 @@ def train_run(
             "status": "completed",
             "completed_at_utc": datetime.now(timezone.utc).isoformat(),
             "last_step": last_step,
+            "successful_optimizer_updates": successful_updates,
+            "amp_overflow_skips": total_amp_overflows,
             "best_step": best_step,
             "best_validation_rmse": best_validation_rmse,
         }

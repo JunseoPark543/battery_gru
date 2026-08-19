@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -59,25 +60,47 @@ def main() -> None:
     write_json(suite_directory / "suite_manifest.json", manifest)
     for model_name in args.models:
         for fold in folds:
-            run_directory = train_run(
-                config,
-                model_name,
-                fold,
-                data_root,
-                max_steps=args.max_steps,
-            )
             record = {
                 "model": model_name,
                 "fold": fold,
-                "run_directory": str(run_directory),
-                "best_checkpoint": str(run_directory / "checkpoints/best.pt"),
+                "status": "running",
+                "run_directory": None,
+                "best_checkpoint": None,
                 "evaluation_directory": None,
             }
-            if args.evaluate:
-                record["evaluation_directory"] = str(
-                    evaluate_run(config, run_directory / "checkpoints/best.pt", data_root)
-                )
             records.append(record)
+            write_json(suite_directory / "suite_manifest.json", manifest)
+            try:
+                run_directory = train_run(
+                    config,
+                    model_name,
+                    fold,
+                    data_root,
+                    max_steps=args.max_steps,
+                )
+                record["run_directory"] = str(run_directory)
+                record["best_checkpoint"] = str(
+                    run_directory / "checkpoints/best.pt"
+                )
+                if args.evaluate:
+                    record["evaluation_directory"] = str(
+                        evaluate_run(
+                            config,
+                            run_directory / "checkpoints/best.pt",
+                            data_root,
+                        )
+                    )
+                record["status"] = "completed"
+            except Exception as exc:
+                record["status"] = "failed"
+                record["error_type"] = type(exc).__name__
+                record["error"] = str(exc)
+                record["traceback"] = traceback.format_exc()
+                manifest["status"] = "failed"
+                manifest["failed_at_utc"] = datetime.now(timezone.utc).isoformat()
+                write_json(suite_directory / "suite_manifest.json", manifest)
+                print(f"Suite failed; diagnostic manifest: {suite_directory / 'suite_manifest.json'}")
+                raise
             write_json(suite_directory / "suite_manifest.json", manifest)
     manifest["status"] = "completed"
     manifest["completed_at_utc"] = datetime.now(timezone.utc).isoformat()

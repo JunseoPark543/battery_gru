@@ -23,6 +23,15 @@ def seed_everything(seed: int, deterministic: bool = True) -> None:
     if deterministic:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+        # MultiheadAttention may otherwise choose flash/memory-efficient SDP,
+        # whose CUDA backward is non-deterministic on supported GPUs.
+        if torch.cuda.is_available():
+            if hasattr(torch.backends.cuda, "enable_flash_sdp"):
+                torch.backends.cuda.enable_flash_sdp(False)
+            if hasattr(torch.backends.cuda, "enable_mem_efficient_sdp"):
+                torch.backends.cuda.enable_mem_efficient_sdp(False)
+            if hasattr(torch.backends.cuda, "enable_math_sdp"):
+                torch.backends.cuda.enable_math_sdp(True)
         torch.use_deterministic_algorithms(True, warn_only=True)
 
 

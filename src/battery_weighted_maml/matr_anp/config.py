@@ -80,8 +80,10 @@ class TrainingConfig:
     validation_episodes_per_cell: int = 3
     early_stopping_patience: int = 10
     checkpoint_interval: int = 500
-    log_interval: int = 50
+    log_interval: int = 10
     use_amp: bool = True
+    amp_initial_scale: float = 1024.0
+    max_consecutive_amp_overflows: int = 20
     deterministic: bool = True
 
 
@@ -170,6 +172,8 @@ class ExperimentConfig:
             "early_stopping_patience": training.early_stopping_patience,
             "checkpoint_interval": training.checkpoint_interval,
             "log_interval": training.log_interval,
+            "amp_initial_scale": training.amp_initial_scale,
+            "max_consecutive_amp_overflows": training.max_consecutive_amp_overflows,
             "mc_samples": self.evaluation.mc_samples,
         }
         if any(value <= 0 for value in positive.values()):
