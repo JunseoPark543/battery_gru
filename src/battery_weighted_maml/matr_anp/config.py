@@ -12,7 +12,7 @@ import yaml
 
 @dataclass
 class PathsConfig:
-    data_root: str | None = None
+    data_root: str | None = "data/MATR"
     output_root: str = "outputs/matr_partial_iv_anp"
 
 

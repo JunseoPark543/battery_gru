@@ -13,13 +13,13 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[test]"
 ```
 
-데이터 경로 우선순위는 `--data-root` → `BATTERYLIFE_DATA_ROOT` → config의 `paths.data_root`이다. 저장소에서 실제 서버 경로를 확인할 수 없었기 때문에 기본 config에는 임의 경로를 넣지 않았다.
+데이터 경로 우선순위는 `--data-root` → `BATTERYLIFE_DATA_ROOT` → config의 `paths.data_root`이다. 서버와 로컬의 공통 구조가 확인되어 기본값은 프로젝트 루트 기준 `data/MATR`이다.
 
 ```bash
-export BATTERYLIFE_DATA_ROOT=/absolute/path/to/BatteryLife
+export BATTERYLIFE_DATA_ROOT=/absolute/path/to/battery_gru/data/MATR
 ```
 
-loader는 경로 또는 metadata로 MATR임을 확인한 pickle만 읽는다. 기대하는 canonical BatteryLife 구조는 다음과 같다.
+환경변수나 `--data-root`를 생략하면 자동으로 `data/MATR`을 사용한다. loader는 경로 또는 metadata로 MATR임을 확인한 pickle만 읽는다. 기대하는 canonical BatteryLife 구조는 다음과 같다.
 
 ```python
 {
@@ -47,6 +47,8 @@ python -m battery_weighted_maml.matr_anp.inspect_data \
 ```
 
 `outputs/matr_partial_iv_anp/data_audit/`에 cell/cycle/신호 길이/current polarity/누락·중복·비단조 정보가 저장된다. 서버 pickle schema가 위 구조와 다르면 학습 전에 여기서 명시적인 오류가 발생한다.
+
+`data/Life labels` 아래 MATR label 파일이 함께 있더라도 이 파이프라인에서는 읽지 않는다. 이번 목표는 RUL/EOL label 예측이 아니라 각 pickle의 cycle별 discharge capacity로 계산한 SOH trajectory 예측이기 때문이다.
 
 ## 모델과 누수 방지
 
@@ -207,4 +209,4 @@ streaming/<cell_alpha>/latency.csv
 streaming/<cell_alpha>/streaming_trajectory.png
 ```
 
-실제 MATR 데이터가 로컬에 없으므로 여기서는 real-data inspection/training 수치를 만들지 않는다. 서버에서는 먼저 inspection, 그 다음 fold 0의 100-step 검증을 통과시킨 후 전체 15개 run을 실행하는 순서가 안전하다.
+현재 Codex 작업공간에서는 `data/MATR` 파일을 확인할 수 없어 real-data inspection/training 수치를 만들지 않았다. 데이터가 있는 서버에서는 먼저 inspection, 그 다음 fold 0의 100-step 검증을 통과시킨 후 전체 15개 run을 실행하는 순서가 안전하다.

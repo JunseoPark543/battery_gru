@@ -2,8 +2,8 @@ seed: 42
 device: auto
 
 paths:
-  # Deliberately unset: CLI --data-root, then BATTERYLIFE_DATA_ROOT, takes priority.
-  data_root: null
+  # Repository/server convention confirmed by the user. CLI and env still override it.
+  data_root: data/MATR
   output_root: outputs/matr_partial_iv_anp
 
 data:
