@@ -1,6 +1,6 @@
 {
   "status": "completed",
-  "completed_at_utc": "2026-08-20T01:37:53.080799+00:00",
+  "completed_at_utc": "2026-08-20T02:05:24.248975+00:00",
   "checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/matr_partial_iv_anp/20260819_161650_872669_fold0_soh_only_anp_s42/checkpoints/best.pt",
   "dataset": "MATR",
   "model": "soh_only_anp",
@@ -51,6 +51,7 @@
   ],
   "beta": 0.0,
   "mc_samples": 50,
+  "plot_snapshot_count": 30,
   "context_policy": "all available through cutoff, uniformly capped at training max_context_points",
   "max_context_points": 128,
   "test_time_optimizer": false,
