@@ -1,0 +1,27 @@
+{
+  "run_directory": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\outputs\\matr_partial_iv_anp\\20260819_161650_872669_fold0_soh_only_anp_s42",
+  "model": "soh_only_anp",
+  "fold": 0,
+  "status": "completed",
+  "last_step": 25000,
+  "successful_optimizer_updates": 24986,
+  "amp_overflow_skips": 14,
+  "runtime_hours": 7.72838739680055,
+  "initial_validation_rmse": 0.059144692053532,
+  "best_validation_step": 23000,
+  "best_validation_rmse": 0.0332744761875649,
+  "last_validation_rmse": 0.0362858136179451,
+  "validation_improvement_percent": 43.740553831190645,
+  "last_vs_best_degradation_percent": 9.049991992077024,
+  "best_batch_mean_rmse": {
+    "b1": 0.025170841428571428,
+    "b2": 0.015074138,
+    "b3": 0.02328829888888889,
+    "b4": 0.07287493333333334
+  },
+  "gradient_clipped_fraction_percent": 99.75586328343873,
+  "last_500_loss_mean": -0.26458428741130047,
+  "last_500_kl_mean": 0.0009497269652783371,
+  "held_out_test_evaluated": false,
+  "plot": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\outputs\\matr_partial_iv_anp\\20260819_161650_872669_fold0_soh_only_anp_s42\\plots\\training_summary.png"
+}

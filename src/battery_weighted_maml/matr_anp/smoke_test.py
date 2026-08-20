@@ -12,6 +12,7 @@ import torch
 from .config import ExperimentConfig, load_config
 from .compare_results import compare_evaluations
 from .evaluate import evaluate_run
+from .plot_training_summary import create_training_summary
 from .runtime import write_json
 from .streaming_demo import streaming_run
 from .synthetic import write_synthetic_matr_dataset
@@ -108,6 +109,7 @@ def run_smoke(
     )
     if int(resumed_payload["step"]) != 2:
         raise RuntimeError("smoke resume did not advance to step 2")
+    training_summary = create_training_summary(partial_run)
 
     partial_checkpoint = partial_run / "checkpoints/best.pt"
     evaluation_directory = evaluate_run(
@@ -151,6 +153,7 @@ def run_smoke(
         streaming_directory / "latency.csv",
         streaming_directory / "streaming_trajectory.png",
         comparison_directory / "rmse_model_comparison.png",
+        training_summary,
     ]
     missing = [str(path) for path in required if not path.is_file()]
     if missing:

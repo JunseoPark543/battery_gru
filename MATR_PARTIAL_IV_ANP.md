@@ -85,6 +85,15 @@ tail -f outputs/matr_partial_iv_anp/<RUN>/logs/train.log
 
 같은 내용은 분석하기 쉬운 형태로 `<RUN>/training/history.csv`에도 저장된다. suite 자체가 실패하면 `suite_<timestamp>/suite_manifest.json`에 실패 모델·fold·예외 traceback이 기록된다.
 
+완료된 run의 loss·validation·cell/batch별 RMSE·gradient/AMP 상태를 한 장으로 정리하려면 다음을 실행한다.
+
+```bash
+python -m battery_weighted_maml.matr_anp.plot_training_summary \
+  --run-dir outputs/matr_partial_iv_anp/<RUN>
+```
+
+결과는 `<RUN>/plots/training_summary.png`, `training_summary.json`, `validation_per_cell_history.csv`에 저장된다. 이 그림은 training/validation 분석이며 held-out test 평가 여부를 제목에 명시한다.
+
 ## 합성 데이터 smoke test
 
 실제 데이터를 다운로드하지 않고 SOH-only/Partial I–V 각각 1 optimizer step, checkpoint reload, 평가, plot, streaming을 CPU에서 확인한다.
