@@ -165,7 +165,7 @@ def plot_context_trajectory_snapshots(
     cell_id: str,
     schedule: str,
 ) -> None:
-    """Overlay the first three streaming forecasts for one test cell."""
+    """Overlay selected early streaming forecasts for one test cell."""
     selected = predictions[
         (predictions["cell_id"] == cell_id)
         & (predictions["schedule"] == schedule)

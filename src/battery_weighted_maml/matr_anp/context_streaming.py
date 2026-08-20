@@ -103,6 +103,7 @@ def context_streaming_run(
     output_dir: str | Path | None = None,
     mc_samples: int | None = None,
     log_interval: int = 25,
+    plot_snapshot_count: int = 10,
 ) -> Path:
     """Evaluate immutable predictions as observed SOH cycles arrive.
 
@@ -119,6 +120,8 @@ def context_streaming_run(
         raise ValueError("beta must lie in [0,1]")
     if log_interval <= 0:
         raise ValueError("log_interval must be positive")
+    if plot_snapshot_count <= 0:
+        raise ValueError("plot_snapshot_count must be positive")
 
     source = Path(checkpoint).resolve()
     if not source.is_file():
@@ -186,9 +189,9 @@ def context_streaming_run(
     logger = configure_logger(destination / "streaming_context.log")
     logger.info(
         "Starting context streaming model=%s cells=%d start=%d end=%s steps=%s beta=%g "
-        "mc_samples=%d max_context=%d device=%s",
+        "mc_samples=%d max_context=%d plot_snapshots=%d device=%s",
         model_name, len(requested_ids), start_cycle, end_cycle, steps, beta,
-        sample_count, config.episode.max_context_points, device,
+        sample_count, config.episode.max_context_points, plot_snapshot_count, device,
     )
 
     schedules_by_cell: dict[str, dict[int, list[int]]] = {}
@@ -212,7 +215,10 @@ def context_streaming_run(
         cell = by_id[cell_id]
         schedules = schedules_by_cell[cell_id]
         schedule_sets = {step: set(values) for step, values in schedules.items()}
-        snapshot_sets = {step: set(values[:3]) for step, values in schedules.items()}
+        snapshot_sets = {
+            step: set(values[:plot_snapshot_count])
+            for step, values in schedules.items()
+        }
         requested_cutoffs = sorted(set().union(*schedule_sets.values()))
         for requested_cutoff in requested_cutoffs:
             available = int(np.searchsorted(
@@ -353,6 +359,7 @@ def context_streaming_run(
         "cycle_steps": steps,
         "beta": beta,
         "mc_samples": sample_count,
+        "plot_snapshot_count": plot_snapshot_count,
         "context_policy": "all available through cutoff, uniformly capped at training max_context_points",
         "max_context_points": config.episode.max_context_points,
         "test_time_optimizer": False,
@@ -385,6 +392,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--beta", type=float, default=0.0)
     parser.add_argument("--mc-samples", type=int)
     parser.add_argument("--log-interval", type=int, default=25)
+    parser.add_argument("--plot-snapshot-count", type=int, default=10)
     parser.add_argument("--output-dir")
     return parser.parse_args()
 
@@ -407,6 +415,7 @@ def main() -> None:
         output_dir=args.output_dir,
         mc_samples=args.mc_samples,
         log_interval=args.log_interval,
+        plot_snapshot_count=args.plot_snapshot_count,
     )
     print(f"Streaming context directory: {destination}")
 
