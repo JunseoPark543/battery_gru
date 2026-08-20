@@ -16,6 +16,7 @@ from battery_weighted_maml.matr_anp.config import (
     SplitConfig,
     resolve_data_root,
 )
+from battery_weighted_maml.matr_anp.context_streaming import cycle_schedule
 from battery_weighted_maml.matr_anp.data import (
     CellData,
     DischargeCurve,
@@ -152,6 +153,23 @@ def test_cell_splits_and_episode_boundaries(synthetic) -> None:
     batch = collate_episodes([episode, other])
     assert batch.context_mask.sum(1).tolist() == [len(episode.context_x), len(other.context_x)]
     assert batch.target_mask.sum(1).tolist() == [len(episode.target_x), len(other.target_x)]
+
+
+def test_absolute_cycle_streaming_context_and_schedules(synthetic) -> None:
+    _, cells, _, processor, scalers, config = synthetic
+    sampler = EpisodeSampler(config.episode, processor, scalers)
+    episode = sampler.evaluation_after_cycle(cells[0], 10, 0.0)
+    context_cycles = np.rint(
+        episode.context_x[:, 0] * scalers.max_cycle_train
+    ).astype(int)
+    assert context_cycles.tolist() == list(range(1, 11))
+    assert episode.current_cycle == 11
+    assert episode.target_cycles[0] == 11
+    capped = sampler.evaluation_after_cycle(cells[0], 20, 0.0)
+    assert len(capped.context_x) == config.episode.max_context_points
+    assert capped.current_cycle == 21
+    assert cycle_schedule(100, 125, 10) == [100, 110, 120]
+    assert cycle_schedule(100, 103, 1) == [100, 101, 102, 103]
 
 
 def _small_model_config() -> ModelConfig:

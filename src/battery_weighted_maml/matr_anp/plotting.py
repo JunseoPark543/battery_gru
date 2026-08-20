@@ -109,3 +109,103 @@ def plot_model_comparison(
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output, dpi=180)
     plt.close(figure)
+
+
+def plot_context_streaming_summary(
+    aggregate: pd.DataFrame,
+    destination: str | Path,
+) -> None:
+    """Plot accuracy and calibration while the SOH context moves forward."""
+    valid = aggregate.sort_values(["cycle_step", "observed_through_cycle"])
+    figure, axes = plt.subplots(2, 2, figsize=(13, 8.5), sharex=True)
+    panels = (
+        ("future_rmse_mean", "Future SOH RMSE", None),
+        ("coverage_95_mean", "95% interval coverage", 0.95),
+        ("interval_width_95_mean", "Mean 95% interval width", None),
+        ("num_cells", "Evaluated test cells", None),
+    )
+    for (metric, ylabel, reference), axis in zip(panels, axes.flat):
+        for step, rows in valid.groupby("cycle_step", sort=False):
+            rows = rows.sort_values("observed_through_cycle")
+            first_cycle = int(rows["observed_through_cycle"].iloc[0])
+            if int(step) == 1:
+                axis.plot(
+                    rows["observed_through_cycle"], rows[metric],
+                    linewidth=1.2, alpha=0.8,
+                    label=f"step1: {first_cycle}, {first_cycle + 1}, ...",
+                )
+            else:
+                axis.plot(
+                    rows["observed_through_cycle"], rows[metric],
+                    marker="o", markersize=3, linewidth=1.0,
+                    label=(
+                        f"step{int(step)}: {first_cycle}, "
+                        f"{first_cycle + int(step)}, ..."
+                    ),
+                )
+        if reference is not None:
+            axis.axhline(reference, color="0.35", linestyle="--", linewidth=1)
+        axis.set_ylabel(ylabel)
+        axis.grid(alpha=0.25)
+    for axis in axes[-1, :]:
+        axis.set_xlabel("SOH observed through cycle")
+    axes[0, 0].legend(fontsize=8)
+    figure.suptitle("Held-out streaming context test (fixed checkpoint)")
+    figure.tight_layout()
+    output = Path(destination)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output, dpi=180)
+    plt.close(figure)
+
+
+def plot_context_trajectory_snapshots(
+    predictions: pd.DataFrame,
+    destination: str | Path,
+    *,
+    cell_id: str,
+    schedule: str,
+) -> None:
+    """Overlay the first three streaming forecasts for one test cell."""
+    selected = predictions[
+        (predictions["cell_id"] == cell_id)
+        & (predictions["schedule"] == schedule)
+    ]
+    if selected.empty:
+        return
+    actual = (
+        selected[["cycle", "actual_soh"]]
+        .dropna()
+        .drop_duplicates("cycle")
+        .sort_values("cycle")
+    )
+    cutoffs = sorted(selected["observed_through_cycle"].unique())
+    colors = plt.get_cmap("viridis")
+    figure, axis = plt.subplots(figsize=(11, 6.5))
+    axis.plot(actual["cycle"], actual["actual_soh"], color="black", lw=1.7, label="actual SOH")
+    for index, cutoff in enumerate(cutoffs):
+        rows = selected[
+            (selected["observed_through_cycle"] == cutoff)
+            & (selected["split"] == "target")
+        ].sort_values("cycle")
+        color = colors(index / max(1, len(cutoffs) - 1))
+        axis.plot(
+            rows["cycle"], rows["predicted_mean"], color=color,
+            label=f"observed through {int(cutoff)}",
+        )
+        axis.fill_between(
+            rows["cycle"], rows["lower_95"], rows["upper_95"],
+            color=color, alpha=0.07,
+        )
+        axis.axvline(int(cutoff), color=color, linestyle="--", linewidth=0.8, alpha=0.7)
+    axis.set(
+        xlabel="Cycle number",
+        ylabel="SOH",
+        title=f"{cell_id}: streaming forecasts ({schedule})",
+    )
+    axis.grid(alpha=0.25)
+    axis.legend(fontsize=8, ncol=2)
+    figure.tight_layout()
+    output = Path(destination)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output, dpi=180)
+    plt.close(figure)

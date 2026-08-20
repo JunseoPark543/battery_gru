@@ -96,6 +96,42 @@ class EpisodeSampler:
         position = max(1, min(count - 1, int(np.floor(alpha * count)) - 1))
         return self._build(cell, position, beta, rng=None, training=False, alpha=alpha)
 
+    def evaluation_after_cycle(
+        self,
+        cell: CellData,
+        observed_through_cycle: int,
+        beta: float,
+    ) -> Episode:
+        """Build an evaluation episode after observing SOH through a cycle.
+
+        Unlike :meth:`evaluation`, which defines the first target by a fraction
+        of the cell life, this method uses an absolute, online-available cycle
+        cutoff.  Every available cycle at or before the cutoff is eligible for
+        context; the first available cycle after the cutoff starts the target.
+        Evaluation still respects ``max_context_points`` so it stays within the
+        context-size range seen during training.
+        """
+        requested = int(observed_through_cycle)
+        cycles = cell.cycle_numbers
+        position = int(np.searchsorted(cycles, requested, side="right"))
+        if position <= 0:
+            raise EpisodeUnavailable(
+                f"{cell.cell_id}: no SOH context at or before cycle {requested}"
+            )
+        if position >= len(cycles):
+            raise EpisodeUnavailable(
+                f"{cell.cell_id}: no future target after cycle {requested}"
+            )
+        alpha = float(position / len(cycles))
+        return self._build(
+            cell,
+            position,
+            beta,
+            rng=None,
+            training=False,
+            alpha=alpha,
+        )
+
     def _build(
         self,
         cell: CellData,
