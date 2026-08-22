@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 
@@ -16,7 +17,11 @@ from battery_weighted_maml.matr_anp.config import (
     SplitConfig,
     resolve_data_root,
 )
-from battery_weighted_maml.matr_anp.context_streaming import cycle_schedule
+from battery_weighted_maml.matr_anp.context_streaming import (
+    _aggregate,
+    _unique_betas,
+    cycle_schedule,
+)
 from battery_weighted_maml.matr_anp.data import (
     CellData,
     DischargeCurve,
@@ -28,6 +33,7 @@ from battery_weighted_maml.matr_anp.features import FoldScalers, PartialIVProces
 from battery_weighted_maml.matr_anp.inference import predict_episode
 from battery_weighted_maml.matr_anp.losses import anp_elbo_loss
 from battery_weighted_maml.matr_anp.model import build_model
+from battery_weighted_maml.matr_anp.plotting import plot_context_streaming_summary
 from battery_weighted_maml.matr_anp.runtime import parameter_checksum
 from battery_weighted_maml.matr_anp.smoke_test import run_smoke
 from battery_weighted_maml.matr_anp.splits import make_splits
@@ -170,6 +176,39 @@ def test_absolute_cycle_streaming_context_and_schedules(synthetic) -> None:
     assert capped.current_cycle == 21
     assert cycle_schedule(100, 125, 10) == [100, 110, 120]
     assert cycle_schedule(100, 103, 1) == [100, 101, 102, 103]
+    assert _unique_betas([0.0, 0.25, 0.25, 1.0]) == [0.0, 0.25, 1.0]
+    with pytest.raises(ValueError, match=r"\[0,1\]"):
+        _unique_betas([1.01])
+
+
+def test_multibeta_streaming_aggregation_and_plot(tmp_path: Path) -> None:
+    rows = []
+    for beta, rmse in ((0.0, 0.05), (0.25, 0.04)):
+        for cutoff in (100, 101):
+            rows.append(
+                {
+                    "status": "ok",
+                    "schedule": "step1",
+                    "cycle_step": 1,
+                    "beta": beta,
+                    "requested_observed_cycle": cutoff,
+                    "cell_id": "MATR_test",
+                    "future_rmse": rmse,
+                    "current_soh_abs_error": 0.001,
+                    "nll": -2.0,
+                    "coverage_95": 0.9,
+                    "interval_width_95": 0.1,
+                    "num_context_points": cutoff,
+                    "num_available_context_points": cutoff,
+                    "num_target_points": 200 - cutoff,
+                }
+            )
+    aggregate = _aggregate(pd.DataFrame(rows))
+    assert len(aggregate) == 4
+    assert sorted(aggregate["beta"].unique()) == [0.0, 0.25]
+    destination = tmp_path / "multibeta_summary.png"
+    plot_context_streaming_summary(aggregate, destination)
+    assert destination.is_file()
 
 
 def _small_model_config() -> ModelConfig:

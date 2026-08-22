@@ -19,7 +19,11 @@ from .evaluate import _validate_checkpoint_config
 from .features import EpisodeUnavailable, FoldScalers, PartialIVProcessor
 from .inference import predict_episode, prediction_frame, trajectory_metrics
 from .model import build_model
-from .plotting import plot_context_streaming_summary, plot_context_trajectory_snapshots
+from .plotting import (
+    plot_context_streaming_summary,
+    plot_context_trajectory_snapshots,
+    plot_within_cycle_beta_snapshot,
+)
 from .runtime import (
     configure_logger,
     parameter_checksum,
@@ -53,16 +57,35 @@ def _unique_positive_steps(steps: Iterable[int]) -> list[int]:
     return output
 
 
+def _unique_betas(values: Iterable[float]) -> list[float]:
+    output: list[float] = []
+    for raw in values:
+        beta = float(raw)
+        if not 0.0 <= beta <= 1.0:
+            raise ValueError("betas must lie in [0,1]")
+        if beta not in output:
+            output.append(beta)
+    if not output:
+        raise ValueError("at least one beta is required")
+    return output
+
+
+def _number_slug(value: float) -> str:
+    return f"{value:g}".replace(".", "p")
+
+
 def _aggregate(per_cutoff: pd.DataFrame) -> pd.DataFrame:
     valid = per_cutoff[per_cutoff["status"] == "ok"]
     rows: list[dict[str, Any]] = []
-    for (schedule, step, cutoff), group in valid.groupby(
-        ["schedule", "cycle_step", "requested_observed_cycle"], sort=False
+    for (schedule, step, beta, cutoff), group in valid.groupby(
+        ["schedule", "cycle_step", "beta", "requested_observed_cycle"],
+        sort=False,
     ):
         rows.append(
             {
                 "schedule": schedule,
                 "cycle_step": int(step),
+                "beta": float(beta),
                 "observed_through_cycle": int(cutoff),
                 "num_cells": int(group["cell_id"].nunique()),
                 "future_rmse_mean": float(group["future_rmse"].mean()),
@@ -99,29 +122,33 @@ def context_streaming_run(
     end_cycle: int | None = None,
     cell_ids: Iterable[str] | None = None,
     beta: float = 0.0,
+    betas: Iterable[float] | None = None,
     plot_cell: str | None = None,
     output_dir: str | Path | None = None,
     mc_samples: int | None = None,
     log_interval: int = 25,
     plot_snapshot_count: int = 10,
+    beta_snapshot_count: int = 3,
 ) -> Path:
-    """Evaluate immutable predictions as observed SOH cycles arrive.
+    """Evaluate immutable predictions as SOH cycles and partial I-V arrive.
 
     The union of all requested schedules is inferred only once.  Consequently,
     shared cutoffs (for example cycle 100 in step1 and step10) are exactly
-    identical and are merely labelled into both schedules in the output.
+    identical and are merely labelled into both schedules in the output.  Each
+    requested beta is evaluated at every unique SOH cutoff.
     """
     steps = _unique_positive_steps(cycle_steps)
+    resolved_betas = _unique_betas(betas if betas is not None else [beta])
     if start_cycle <= 0:
         raise ValueError("start_cycle must be positive")
     if end_cycle is not None and end_cycle < start_cycle:
         raise ValueError("end_cycle must be at least start_cycle")
-    if not 0.0 <= beta <= 1.0:
-        raise ValueError("beta must lie in [0,1]")
     if log_interval <= 0:
         raise ValueError("log_interval must be positive")
     if plot_snapshot_count <= 0:
         raise ValueError("plot_snapshot_count must be positive")
+    if beta_snapshot_count <= 0:
+        raise ValueError("beta_snapshot_count must be positive")
 
     source = Path(checkpoint).resolve()
     if not source.is_file():
@@ -177,10 +204,19 @@ def context_streaming_run(
     )
 
     step_label = "-".join(map(str, steps))
+    if len(resolved_betas) == 1:
+        beta_suffix = (
+            "" if resolved_betas[0] == 0.0
+            else f"_beta{_number_slug(resolved_betas[0])}"
+        )
+    else:
+        beta_suffix = "_betas" + "-".join(_number_slug(value) for value in resolved_betas)
     destination = (
         Path(output_dir).resolve()
         if output_dir
-        else source.parent.parent / "streaming_context" / f"c{start_cycle}_steps{step_label}"
+        else source.parent.parent / "streaming_context" / (
+            f"c{start_cycle}_steps{step_label}{beta_suffix}"
+        )
     )
     destination.mkdir(parents=True, exist_ok=True)
     (destination / "plots").mkdir(exist_ok=True)
@@ -188,9 +224,9 @@ def context_streaming_run(
     audit.to_csv(destination / "data_audit.csv", index=False)
     logger = configure_logger(destination / "streaming_context.log")
     logger.info(
-        "Starting context streaming model=%s cells=%d start=%d end=%s steps=%s beta=%g "
+        "Starting context streaming model=%s cells=%d start=%d end=%s steps=%s betas=%s "
         "mc_samples=%d max_context=%d plot_snapshots=%d device=%s",
-        model_name, len(requested_ids), start_cycle, end_cycle, steps, beta,
+        model_name, len(requested_ids), start_cycle, end_cycle, steps, resolved_betas,
         sample_count, config.episode.max_context_points, plot_snapshot_count, device,
     )
 
@@ -202,7 +238,10 @@ def context_streaming_run(
             step: cycle_schedule(start_cycle, effective_end, step) for step in steps
         }
         schedules_by_cell[cell_id] = schedules
-        total_unique += len(set().union(*(set(values) for values in schedules.values())))
+        total_unique += (
+            len(set().union(*(set(values) for values in schedules.values())))
+            * len(resolved_betas)
+        )
     if total_unique == 0:
         raise ValueError("no requested cell has a future target after start_cycle")
 
@@ -219,6 +258,10 @@ def context_streaming_run(
             step: set(values[:plot_snapshot_count])
             for step, values in schedules.items()
         }
+        finest_step = min(steps)
+        beta_snapshot_set = set(
+            schedules[finest_step][:beta_snapshot_count]
+        )
         requested_cutoffs = sorted(set().union(*schedule_sets.values()))
         for requested_cutoff in requested_cutoffs:
             available = int(np.searchsorted(
@@ -227,92 +270,110 @@ def context_streaming_run(
             actual_observed = (
                 int(cell.cycle_numbers[available - 1]) if available > 0 else None
             )
-            base: dict[str, Any] = {
-                "fold": fold,
-                "seed": config.seed,
-                "model": model_name,
-                "cell_id": cell_id,
-                "beta": beta,
-                "requested_observed_cycle": requested_cutoff,
-                "observed_through_cycle": actual_observed,
-                "num_available_context_points": available,
-            }
-            episode = None
-            result = None
-            try:
-                episode = sampler.evaluation_after_cycle(cell, requested_cutoff, beta)
-                result = predict_episode(
-                    model,
-                    episode,
-                    scalers,
-                    device,
-                    mc_samples=sample_count,
-                    interval_level=config.evaluation.interval_level,
-                    # Keep MC draws paired as context changes for the same cell.
-                    seed=config.seed + fold * 1_000_003 + cell_index * 10_007,
-                )
-                base.update(
-                    {
-                        "status": "ok",
-                        "reason": "",
-                        **trajectory_metrics(episode, result),
-                        "forecast_start_cycle": episode.current_cycle,
-                        "num_context_points": len(episode.context_x),
-                        "num_target_points": len(episode.target_x),
-                    }
-                )
-            except EpisodeUnavailable as exc:
-                base.update(
-                    {
-                        "status": "skipped",
-                        "reason": str(exc),
-                        "future_rmse": np.nan,
-                        "current_soh_abs_error": np.nan,
-                        "nll": np.nan,
-                        "coverage_95": np.nan,
-                        "interval_width_95": np.nan,
-                        "forecast_start_cycle": np.nan,
-                        "num_context_points": np.nan,
-                        "num_target_points": np.nan,
-                    }
-                )
-
-            for step in steps:
-                if requested_cutoff not in schedule_sets[step]:
-                    continue
-                schedule = f"step{step}"
-                metric_rows.append({**base, "schedule": schedule, "cycle_step": step})
-                if (
-                    cell_id == selected_plot_cell
-                    and requested_cutoff in snapshot_sets[step]
-                    and episode is not None
-                    and result is not None
-                ):
-                    frame = prediction_frame(
-                        episode,
-                        result,
-                        scalers,
-                        model_name=model_name,
-                        fold=fold,
-                        seed=config.seed,
+            for current_beta in resolved_betas:
+                base: dict[str, Any] = {
+                    "fold": fold,
+                    "seed": config.seed,
+                    "model": model_name,
+                    "cell_id": cell_id,
+                    "beta": current_beta,
+                    "requested_observed_cycle": requested_cutoff,
+                    "observed_through_cycle": actual_observed,
+                    "num_available_context_points": available,
+                }
+                episode = None
+                result = None
+                try:
+                    episode = sampler.evaluation_after_cycle(
+                        cell, requested_cutoff, current_beta
                     )
-                    frame["schedule"] = schedule
-                    frame["cycle_step"] = step
-                    frame["requested_observed_cycle"] = requested_cutoff
-                    frame["observed_through_cycle"] = actual_observed
-                    snapshot_frames.append(frame)
+                    result = predict_episode(
+                        model,
+                        episode,
+                        scalers,
+                        device,
+                        mc_samples=sample_count,
+                        interval_level=config.evaluation.interval_level,
+                        # Paired draws isolate changes from context and I-V arrival.
+                        seed=config.seed + fold * 1_000_003 + cell_index * 10_007,
+                    )
+                    base.update(
+                        {
+                            "status": "ok",
+                            "reason": "",
+                            **trajectory_metrics(episode, result),
+                            "forecast_start_cycle": episode.current_cycle,
+                            "num_context_points": len(episode.context_x),
+                            "num_target_points": len(episode.target_x),
+                        }
+                    )
+                except EpisodeUnavailable as exc:
+                    base.update(
+                        {
+                            "status": "skipped",
+                            "reason": str(exc),
+                            "future_rmse": np.nan,
+                            "current_soh_abs_error": np.nan,
+                            "nll": np.nan,
+                            "coverage_95": np.nan,
+                            "interval_width_95": np.nan,
+                            "forecast_start_cycle": np.nan,
+                            "num_context_points": np.nan,
+                            "num_target_points": np.nan,
+                        }
+                    )
 
-            completed += 1
-            progress.update(1)
-            progress.set_postfix(cell=cell_id, cycle=requested_cutoff)
-            if completed == 1 or completed % log_interval == 0 or completed == total_unique:
-                logger.info(
-                    "progress=%d/%d cell=%s requested_cycle=%d actual_observed=%s "
-                    "context=%s/%d target=%s rmse=%s status=%s",
-                    completed, total_unique, cell_id, requested_cutoff, actual_observed,
-                    base["num_context_points"], available, base["num_target_points"],
-                    base["future_rmse"], base["status"],
+                for step in steps:
+                    if requested_cutoff not in schedule_sets[step]:
+                        continue
+                    schedule = f"step{step}"
+                    metric_rows.append(
+                        {**base, "schedule": schedule, "cycle_step": step}
+                    )
+                    if (
+                        cell_id == selected_plot_cell
+                        and (
+                            requested_cutoff in snapshot_sets[step]
+                            or (
+                                step == finest_step
+                                and requested_cutoff in beta_snapshot_set
+                            )
+                        )
+                        and episode is not None
+                        and result is not None
+                    ):
+                        frame = prediction_frame(
+                            episode,
+                            result,
+                            scalers,
+                            model_name=model_name,
+                            fold=fold,
+                            seed=config.seed,
+                        )
+                        frame["schedule"] = schedule
+                        frame["cycle_step"] = step
+                        frame["requested_observed_cycle"] = requested_cutoff
+                        frame["observed_through_cycle"] = actual_observed
+                        snapshot_frames.append(frame)
+
+                completed += 1
+                progress.update(1)
+                progress.set_postfix(
+                    cell=cell_id, cycle=requested_cutoff, beta=current_beta
                 )
+                if (
+                    completed == 1
+                    or completed % log_interval == 0
+                    or completed == total_unique
+                ):
+                    logger.info(
+                        "progress=%d/%d cell=%s requested_cycle=%d beta=%g "
+                        "actual_observed=%s context=%s/%d target=%s rmse=%s status=%s",
+                        completed, total_unique, cell_id, requested_cutoff,
+                        current_beta, actual_observed, base["num_context_points"],
+                        available, base["num_target_points"], base["future_rmse"],
+                        base["status"],
+                    )
     progress.close()
 
     per_cutoff = pd.DataFrame(metric_rows)
@@ -325,17 +386,50 @@ def context_streaming_run(
     aggregate.to_csv(destination / "aggregate_metrics.csv", index=False)
     snapshots.to_csv(destination / "trajectory_snapshots.csv", index=False)
     if not aggregate.empty:
-        plot_context_streaming_summary(
-            aggregate, destination / "plots" / "streaming_context_summary.png"
-        )
+        if len(resolved_betas) == 1:
+            plot_context_streaming_summary(
+                aggregate, destination / "plots" / "streaming_context_summary.png"
+            )
+        else:
+            for step in steps:
+                plot_context_streaming_summary(
+                    aggregate[aggregate["cycle_step"] == step],
+                    destination / "plots" / f"streaming_context_summary_step{step}.png",
+                )
     if not snapshots.empty:
         for step in steps:
-            plot_context_trajectory_snapshots(
-                snapshots,
-                destination / "plots" / f"trajectory_{selected_plot_cell}_step{step}.png",
-                cell_id=selected_plot_cell,
-                schedule=f"step{step}",
-            )
+            for current_beta in resolved_betas:
+                beta_name = _number_slug(current_beta)
+                trajectory_name = (
+                    f"trajectory_{selected_plot_cell}_step{step}.png"
+                    if len(resolved_betas) == 1
+                    else (
+                        f"trajectory_{selected_plot_cell}_step{step}_"
+                        f"beta{beta_name}.png"
+                    )
+                )
+                plot_context_trajectory_snapshots(
+                    snapshots,
+                    destination / "plots" / trajectory_name,
+                    cell_id=selected_plot_cell,
+                    schedule=f"step{step}",
+                    beta=current_beta,
+                )
+        if len(resolved_betas) > 1:
+            finest_step = min(steps)
+            beta_cutoffs = schedules_by_cell[selected_plot_cell][finest_step][
+                :beta_snapshot_count
+            ]
+            for cutoff in beta_cutoffs:
+                plot_within_cycle_beta_snapshot(
+                    snapshots,
+                    destination / "plots" / (
+                        f"trajectory_{selected_plot_cell}_cycle{cutoff}_betas.png"
+                    ),
+                    cell_id=selected_plot_cell,
+                    schedule=f"step{finest_step}",
+                    observed_through_cycle=cutoff,
+                )
 
     checksum_after = parameter_checksum(model)
     exactly_equal = all(
@@ -357,9 +451,11 @@ def context_streaming_run(
         "start_cycle": start_cycle,
         "end_cycle": end_cycle,
         "cycle_steps": steps,
-        "beta": beta,
+        "beta": resolved_betas[0] if len(resolved_betas) == 1 else None,
+        "betas": resolved_betas,
         "mc_samples": sample_count,
         "plot_snapshot_count": plot_snapshot_count,
+        "beta_snapshot_count": beta_snapshot_count,
         "context_policy": "all available through cutoff, uniformly capped at training max_context_points",
         "max_context_points": config.episode.max_context_points,
         "test_time_optimizer": False,
@@ -389,10 +485,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cycle-steps", nargs="+", type=int, default=[10, 1])
     parser.add_argument("--cell-id", dest="cell_ids", nargs="+")
     parser.add_argument("--plot-cell")
-    parser.add_argument("--beta", type=float, default=0.0)
+    beta_group = parser.add_mutually_exclusive_group()
+    beta_group.add_argument("--beta", type=float)
+    beta_group.add_argument("--betas", nargs="+", type=float)
     parser.add_argument("--mc-samples", type=int)
     parser.add_argument("--log-interval", type=int, default=25)
     parser.add_argument("--plot-snapshot-count", type=int, default=10)
+    parser.add_argument("--beta-snapshot-count", type=int, default=3)
     parser.add_argument("--output-dir")
     return parser.parse_args()
 
@@ -410,12 +509,14 @@ def main() -> None:
         end_cycle=args.end_cycle,
         cycle_steps=args.cycle_steps,
         cell_ids=args.cell_ids,
-        beta=args.beta,
+        beta=0.0 if args.beta is None else args.beta,
+        betas=args.betas,
         plot_cell=args.plot_cell,
         output_dir=args.output_dir,
         mc_samples=args.mc_samples,
         log_interval=args.log_interval,
         plot_snapshot_count=args.plot_snapshot_count,
+        beta_snapshot_count=args.beta_snapshot_count,
     )
     print(f"Streaming context directory: {destination}")
 

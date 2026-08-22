@@ -124,15 +124,26 @@ def plot_context_streaming_summary(
         ("interval_width_95_mean", "Mean 95% interval width", None),
         ("num_cells", "Evaluated test cells", None),
     )
+    multiple_betas = "beta" in valid and valid["beta"].nunique() > 1
+    group_columns = ["cycle_step", "beta"] if multiple_betas else ["cycle_step"]
     for (metric, ylabel, reference), axis in zip(panels, axes.flat):
-        for step, rows in valid.groupby("cycle_step", sort=False):
+        for keys, rows in valid.groupby(group_columns, sort=False):
+            if multiple_betas:
+                step, beta = keys
+            else:
+                step = keys[0] if isinstance(keys, tuple) else keys
+                beta = None
             rows = rows.sort_values("observed_through_cycle")
             first_cycle = int(rows["observed_through_cycle"].iloc[0])
+            beta_label = f", beta={float(beta):g}" if beta is not None else ""
             if int(step) == 1:
                 axis.plot(
                     rows["observed_through_cycle"], rows[metric],
                     linewidth=1.2, alpha=0.8,
-                    label=f"step1: {first_cycle}, {first_cycle + 1}, ...",
+                    label=(
+                        f"step1: {first_cycle}, {first_cycle + 1}, ..."
+                        f"{beta_label}"
+                    ),
                 )
             else:
                 axis.plot(
@@ -140,7 +151,7 @@ def plot_context_streaming_summary(
                     marker="o", markersize=3, linewidth=1.0,
                     label=(
                         f"step{int(step)}: {first_cycle}, "
-                        f"{first_cycle + int(step)}, ..."
+                        f"{first_cycle + int(step)}, ...{beta_label}"
                     ),
                 )
         if reference is not None:
@@ -164,12 +175,15 @@ def plot_context_trajectory_snapshots(
     *,
     cell_id: str,
     schedule: str,
+    beta: float | None = None,
 ) -> None:
     """Overlay selected early streaming forecasts for one test cell."""
     selected = predictions[
         (predictions["cell_id"] == cell_id)
         & (predictions["schedule"] == schedule)
     ]
+    if beta is not None:
+        selected = selected[selected["beta"] == beta]
     if selected.empty:
         return
     actual = (
@@ -197,10 +211,75 @@ def plot_context_trajectory_snapshots(
             color=color, alpha=0.07,
         )
         axis.axvline(int(cutoff), color=color, linestyle="--", linewidth=0.8, alpha=0.7)
+    beta_title = f", beta={beta:g}" if beta is not None else ""
     axis.set(
         xlabel="Cycle number",
         ylabel="SOH",
-        title=f"{cell_id}: streaming forecasts ({schedule})",
+        title=f"{cell_id}: streaming forecasts ({schedule}{beta_title})",
+    )
+    axis.grid(alpha=0.25)
+    axis.legend(fontsize=8, ncol=2)
+    figure.tight_layout()
+    output = Path(destination)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output, dpi=180)
+    plt.close(figure)
+
+
+def plot_within_cycle_beta_snapshot(
+    predictions: pd.DataFrame,
+    destination: str | Path,
+    *,
+    cell_id: str,
+    schedule: str,
+    observed_through_cycle: int,
+) -> None:
+    """Compare all partial I-V arrival levels at one SOH context cutoff."""
+    selected = predictions[
+        (predictions["cell_id"] == cell_id)
+        & (predictions["schedule"] == schedule)
+        & (predictions["observed_through_cycle"] == observed_through_cycle)
+    ]
+    if selected.empty:
+        return
+    beta_values = sorted(selected["beta"].unique())
+    first = selected[selected["beta"] == beta_values[0]]
+    context = first[first["split"] == "context"].sort_values("cycle")
+    target = first[first["split"] == "target"].sort_values("cycle")
+    colors = plt.get_cmap("viridis")
+    figure, axis = plt.subplots(figsize=(11, 6.5))
+    axis.plot(
+        context["cycle"], context["actual_soh"], "o-", ms=2.5,
+        color="black", label="observed SOH context",
+    )
+    axis.plot(
+        target["cycle"], target["actual_soh"], color="0.35",
+        linewidth=1.6, label="actual future SOH",
+    )
+    for index, beta in enumerate(beta_values):
+        rows = selected[
+            (selected["beta"] == beta) & (selected["split"] == "target")
+        ].sort_values("cycle")
+        color = colors(index / max(1, len(beta_values) - 1))
+        axis.plot(
+            rows["cycle"], rows["predicted_mean"], color=color,
+            label=f"beta={float(beta):g}",
+        )
+        axis.fill_between(
+            rows["cycle"], rows["lower_95"], rows["upper_95"],
+            color=color, alpha=0.07,
+        )
+    axis.axvline(
+        observed_through_cycle, color="tab:red", linestyle="--",
+        label="last observed SOH cycle",
+    )
+    axis.set(
+        xlabel="Cycle number",
+        ylabel="SOH",
+        title=(
+            f"{cell_id}: within-cycle partial I-V updates after SOH cycle "
+            f"{observed_through_cycle}"
+        ),
     )
     axis.grid(alpha=0.25)
     axis.legend(fontsize=8, ncol=2)
