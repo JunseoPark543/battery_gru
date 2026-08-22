@@ -1,0 +1,15 @@
+{
+  "status": "completed",
+  "completed_at_utc": "2026-08-22T17:18:32.195838+00:00",
+  "sources": [
+    "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/calce_partial_iv_anp/20260823_021413_214463_fold0_soh_only_anp_s42/evaluation/best/per_cell_metrics.csv",
+    "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/calce_partial_iv_anp/20260823_021601_693132_fold0_partial_iv_anp_s42/evaluation/best/per_cell_metrics.csv"
+  ],
+  "models": [
+    "partial_iv_anp",
+    "soh_only_anp"
+  ],
+  "folds": [
+    0
+  ]
+}

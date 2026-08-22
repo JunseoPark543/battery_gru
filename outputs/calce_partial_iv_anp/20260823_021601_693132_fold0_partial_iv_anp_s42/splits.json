@@ -1,0 +1,117 @@
+{
+  "strategy": "kfold",
+  "seed": 42,
+  "num_folds": 5,
+  "folds": [
+    {
+      "fold": 0,
+      "train_cells": [
+        "CALCE_CS2_34",
+        "CALCE_CS2_35",
+        "CALCE_CS2_36",
+        "CALCE_CX2_16",
+        "CALCE_CX2_34",
+        "CALCE_CX2_35",
+        "CALCE_CX2_36",
+        "CALCE_CX2_37"
+      ],
+      "validation_cells": [
+        "CALCE_CS2_37",
+        "CALCE_CS2_38"
+      ],
+      "test_cells": [
+        "CALCE_CS2_33",
+        "CALCE_CX2_33",
+        "CALCE_CX2_38"
+      ]
+    },
+    {
+      "fold": 1,
+      "train_cells": [
+        "CALCE_CS2_34",
+        "CALCE_CS2_35",
+        "CALCE_CS2_37",
+        "CALCE_CS2_38",
+        "CALCE_CX2_16",
+        "CALCE_CX2_34",
+        "CALCE_CX2_37",
+        "CALCE_CX2_38"
+      ],
+      "validation_cells": [
+        "CALCE_CS2_33",
+        "CALCE_CX2_33"
+      ],
+      "test_cells": [
+        "CALCE_CS2_36",
+        "CALCE_CX2_35",
+        "CALCE_CX2_36"
+      ]
+    },
+    {
+      "fold": 2,
+      "train_cells": [
+        "CALCE_CS2_33",
+        "CALCE_CS2_34",
+        "CALCE_CS2_36",
+        "CALCE_CS2_37",
+        "CALCE_CX2_34",
+        "CALCE_CX2_35",
+        "CALCE_CX2_36",
+        "CALCE_CX2_37"
+      ],
+      "validation_cells": [
+        "CALCE_CX2_33",
+        "CALCE_CX2_38"
+      ],
+      "test_cells": [
+        "CALCE_CS2_35",
+        "CALCE_CS2_38",
+        "CALCE_CX2_16"
+      ]
+    },
+    {
+      "fold": 3,
+      "train_cells": [
+        "CALCE_CS2_33",
+        "CALCE_CS2_34",
+        "CALCE_CS2_35",
+        "CALCE_CS2_36",
+        "CALCE_CS2_38",
+        "CALCE_CX2_16",
+        "CALCE_CX2_34",
+        "CALCE_CX2_35",
+        "CALCE_CX2_38"
+      ],
+      "validation_cells": [
+        "CALCE_CX2_33",
+        "CALCE_CX2_36"
+      ],
+      "test_cells": [
+        "CALCE_CS2_37",
+        "CALCE_CX2_37"
+      ]
+    },
+    {
+      "fold": 4,
+      "train_cells": [
+        "CALCE_CS2_33",
+        "CALCE_CS2_35",
+        "CALCE_CS2_36",
+        "CALCE_CS2_38",
+        "CALCE_CX2_16",
+        "CALCE_CX2_33",
+        "CALCE_CX2_36",
+        "CALCE_CX2_37",
+        "CALCE_CX2_38"
+      ],
+      "validation_cells": [
+        "CALCE_CS2_37",
+        "CALCE_CX2_35"
+      ],
+      "test_cells": [
+        "CALCE_CS2_34",
+        "CALCE_CX2_34"
+      ]
+    }
+  ]
+}

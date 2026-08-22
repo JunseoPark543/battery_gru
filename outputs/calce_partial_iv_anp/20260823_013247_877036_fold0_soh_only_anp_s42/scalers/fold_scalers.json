@@ -1,0 +1,19 @@
+{
+  "fit_cell_ids": [
+    "CALCE_CS2_34",
+    "CALCE_CS2_35",
+    "CALCE_CS2_36",
+    "CALCE_CX2_16",
+    "CALCE_CX2_34",
+    "CALCE_CX2_35",
+    "CALCE_CX2_36",
+    "CALCE_CX2_37"
+  ],
+  "soh_mean": 0.7849039134040361,
+  "soh_std": 0.1489052560764984,
+  "max_cycle_train": 1568,
+  "delta_voltage_mean": -0.10009855292223681,
+  "delta_voltage_std": 0.13422103465115018,
+  "current_mean": 1.0207805251157875,
+  "current_std": 0.3382180885869298
+}

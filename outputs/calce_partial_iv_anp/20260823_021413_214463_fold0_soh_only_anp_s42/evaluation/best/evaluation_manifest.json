@@ -1,0 +1,20 @@
+{
+  "status": "completed",
+  "completed_at_utc": "2026-08-22T17:15:59.716954+00:00",
+  "checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/calce_partial_iv_anp/20260823_021413_214463_fold0_soh_only_anp_s42/checkpoints/best.pt",
+  "dataset": "CALCE",
+  "model": "soh_only_anp",
+  "fold": 0,
+  "seed": 42,
+  "test_cells": [
+    "CALCE_CS2_33",
+    "CALCE_CX2_33",
+    "CALCE_CX2_38"
+  ],
+  "mc_samples": 50,
+  "parameter_checksum_before": "d9b6e59b86430e937b41330d263a00f772f71e713e762a746fd222f02eeef3cf",
+  "parameter_checksum_after": "d9b6e59b86430e937b41330d263a00f772f71e713e762a746fd222f02eeef3cf",
+  "test_time_optimization": false,
+  "num_valid_combinations": 45,
+  "num_skipped_combinations": 0
+}

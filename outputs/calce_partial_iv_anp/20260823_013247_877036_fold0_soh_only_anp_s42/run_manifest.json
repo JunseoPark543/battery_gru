@@ -1,0 +1,54 @@
+{
+  "status": "running",
+  "started_at_utc": "2026-08-22T16:32:47.947098+00:00",
+  "dataset": "CALCE",
+  "algorithm": "attentive_neural_process",
+  "model": "soh_only_anp",
+  "model_spec": {
+    "model_name": "soh_only_anp",
+    "hidden_dim": 64,
+    "latent_dim": 32,
+    "attention_heads": 4,
+    "conditional_iv": false,
+    "parameter_count": 94658,
+    "parameter_match_target": null,
+    "parameter_match_relative_error": null
+  },
+  "fold": 0,
+  "split": {
+    "fold": 0,
+    "train_cells": [
+      "CALCE_CS2_34",
+      "CALCE_CS2_35",
+      "CALCE_CS2_36",
+      "CALCE_CX2_16",
+      "CALCE_CX2_34",
+      "CALCE_CX2_35",
+      "CALCE_CX2_36",
+      "CALCE_CX2_37"
+    ],
+    "validation_cells": [
+      "CALCE_CS2_37",
+      "CALCE_CS2_38"
+    ],
+    "test_cells": [
+      "CALCE_CS2_33",
+      "CALCE_CX2_33",
+      "CALCE_CX2_38"
+    ]
+  },
+  "scaler_fit_cells": [
+    "CALCE_CS2_34",
+    "CALCE_CS2_35",
+    "CALCE_CS2_36",
+    "CALCE_CX2_16",
+    "CALCE_CX2_34",
+    "CALCE_CX2_35",
+    "CALCE_CX2_36",
+    "CALCE_CX2_37"
+  ],
+  "device": "cuda",
+  "seed": 42,
+  "git_commit": "725ff068af26824c969d5d27bfb28746d7e6ed73",
+  "data_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/CALCE"
+}

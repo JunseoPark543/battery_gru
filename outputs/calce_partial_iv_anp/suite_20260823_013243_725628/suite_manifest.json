@@ -1,0 +1,25 @@
+{
+  "status": "running",
+  "started_at_utc": "2026-08-22T16:32:43.725722+00:00",
+  "dataset": "CALCE",
+  "models": [
+    "soh_only_anp",
+    "partial_iv_anp"
+  ],
+  "folds": [
+    0
+  ],
+  "max_steps_override": null,
+  "evaluate": true,
+  "comparison_directory": null,
+  "runs": [
+    {
+      "model": "soh_only_anp",
+      "fold": 0,
+      "status": "running",
+      "run_directory": null,
+      "best_checkpoint": null,
+      "evaluation_directory": null
+    }
+  ]
+}

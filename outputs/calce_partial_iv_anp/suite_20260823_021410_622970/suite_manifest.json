@@ -1,0 +1,35 @@
+{
+  "status": "completed",
+  "started_at_utc": "2026-08-22T17:14:10.623036+00:00",
+  "dataset": "CALCE",
+  "models": [
+    "soh_only_anp",
+    "partial_iv_anp"
+  ],
+  "folds": [
+    0
+  ],
+  "max_steps_override": null,
+  "batch_size_override": 64,
+  "evaluate": true,
+  "comparison_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/calce_partial_iv_anp/suite_20260823_021410_622970/model_comparison",
+  "runs": [
+    {
+      "model": "soh_only_anp",
+      "fold": 0,
+      "status": "completed",
+      "run_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/calce_partial_iv_anp/20260823_021413_214463_fold0_soh_only_anp_s42",
+      "best_checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/calce_partial_iv_anp/20260823_021413_214463_fold0_soh_only_anp_s42/checkpoints/best.pt",
+      "evaluation_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/calce_partial_iv_anp/20260823_021413_214463_fold0_soh_only_anp_s42/evaluation/best"
+    },
+    {
+      "model": "partial_iv_anp",
+      "fold": 0,
+      "status": "completed",
+      "run_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/calce_partial_iv_anp/20260823_021601_693132_fold0_partial_iv_anp_s42",
+      "best_checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/calce_partial_iv_anp/20260823_021601_693132_fold0_partial_iv_anp_s42/checkpoints/best.pt",
+      "evaluation_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/calce_partial_iv_anp/20260823_021601_693132_fold0_partial_iv_anp_s42/evaluation/best"
+    }
+  ],
+  "completed_at_utc": "2026-08-22T17:18:32.196214+00:00"
+}

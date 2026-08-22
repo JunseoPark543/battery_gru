@@ -1,0 +1,72 @@
+{
+  "status": "completed",
+  "started_at_utc": "2026-08-22T17:16:01.698041+00:00",
+  "dataset": "CALCE",
+  "algorithm": "attentive_neural_process",
+  "model": "partial_iv_anp",
+  "model_spec": {
+    "model_name": "partial_iv_anp",
+    "hidden_dim": 64,
+    "latent_dim": 32,
+    "attention_heads": 4,
+    "conditional_iv": true,
+    "parameter_count": 119266,
+    "parameter_match_target": null,
+    "parameter_match_relative_error": null
+  },
+  "fold": 0,
+  "split": {
+    "fold": 0,
+    "train_cells": [
+      "CALCE_CS2_34",
+      "CALCE_CS2_35",
+      "CALCE_CS2_36",
+      "CALCE_CX2_16",
+      "CALCE_CX2_34",
+      "CALCE_CX2_35",
+      "CALCE_CX2_36",
+      "CALCE_CX2_37"
+    ],
+    "validation_cells": [
+      "CALCE_CS2_37",
+      "CALCE_CS2_38"
+    ],
+    "test_cells": [
+      "CALCE_CS2_33",
+      "CALCE_CX2_33",
+      "CALCE_CX2_38"
+    ]
+  },
+  "scaler_fit_cells": [
+    "CALCE_CS2_34",
+    "CALCE_CS2_35",
+    "CALCE_CS2_36",
+    "CALCE_CX2_16",
+    "CALCE_CX2_34",
+    "CALCE_CX2_35",
+    "CALCE_CX2_36",
+    "CALCE_CX2_37"
+  ],
+  "device": "cuda",
+  "seed": 42,
+  "git_commit": "324283e87db121a63b46a07bb6f33ad2cd3e953b",
+  "data_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/CALCE",
+  "cuda_available": true,
+  "torch_cuda_version": "13.0",
+  "feature_cache": {
+    "grid_curves": 8876,
+    "references": 8,
+    "raw_features": 8828
+  },
+  "cuda_device_name": "NVIDIA GeForce RTX 5080",
+  "cuda_device_capability": [
+    12,
+    0
+  ],
+  "completed_at_utc": "2026-08-22T17:18:26.310284+00:00",
+  "last_step": 7000,
+  "successful_optimizer_updates": 6998,
+  "amp_overflow_skips": 2,
+  "best_step": 2000,
+  "best_validation_rmse": 0.07916614770019642
+}
