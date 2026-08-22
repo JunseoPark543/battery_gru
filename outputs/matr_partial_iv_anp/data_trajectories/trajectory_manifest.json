@@ -1,0 +1,18 @@
+{
+  "created_at_utc": "2026-08-22T10:52:43.146815+00:00",
+  "dataset": "MATR",
+  "data_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/MATR",
+  "git_commit": "37b5e734e7df056d291692727424121c75789118",
+  "plot": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/matr_partial_iv_anp/data_trajectories/matr_soh_trajectories_cycle.png",
+  "x_axis": "cycle",
+  "eol_threshold": 0.8,
+  "cell_count": 169,
+  "batches": [
+    "b1",
+    "b2",
+    "b3",
+    "b4"
+  ],
+  "highlight_cells": [],
+  "invalid_file_count": 0
+}
