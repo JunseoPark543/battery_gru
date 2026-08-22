@@ -34,6 +34,12 @@ from battery_weighted_maml.matr_anp.inference import predict_episode
 from battery_weighted_maml.matr_anp.losses import anp_elbo_loss
 from battery_weighted_maml.matr_anp.model import build_model
 from battery_weighted_maml.matr_anp.plotting import plot_context_streaming_summary
+from battery_weighted_maml.matr_anp.plot_data_trajectories import (
+    matr_batch,
+    plot_trajectories,
+    trajectory_frame,
+    trajectory_summary,
+)
 from battery_weighted_maml.matr_anp.runtime import parameter_checksum
 from battery_weighted_maml.matr_anp.smoke_test import run_smoke
 from battery_weighted_maml.matr_anp.splits import make_splits
@@ -208,6 +214,26 @@ def test_multibeta_streaming_aggregation_and_plot(tmp_path: Path) -> None:
     assert sorted(aggregate["beta"].unique()) == [0.0, 0.25]
     destination = tmp_path / "multibeta_summary.png"
     plot_context_streaming_summary(aggregate, destination)
+    assert destination.is_file()
+
+
+def test_matr_data_trajectory_plot(synthetic, tmp_path: Path) -> None:
+    _, cells, _, _, _, _ = synthetic
+    trajectories = trajectory_frame(cells)
+    assert trajectories["cell_id"].nunique() == len(cells)
+    assert matr_batch("MATR_b3c17") == "b3"
+    assert matr_batch(cells[0].cell_id) == "other"
+    summary = trajectory_summary(trajectories, eol_threshold=0.9)
+    assert len(summary) == len(cells)
+    assert summary["last_cycle"].eq(28).all()
+    destination = plot_trajectories(
+        trajectories,
+        tmp_path / "matr_trajectories.png",
+        x_axis="cycle",
+        eol_threshold=0.9,
+        highlight_cells=[cells[0].cell_id],
+        dpi=80,
+    )
     assert destination.is_file()
 
 
