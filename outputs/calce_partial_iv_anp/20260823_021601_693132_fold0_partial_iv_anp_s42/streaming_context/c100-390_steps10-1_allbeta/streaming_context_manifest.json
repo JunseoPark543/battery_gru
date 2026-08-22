@@ -1,0 +1,42 @@
+{
+  "status": "completed",
+  "completed_at_utc": "2026-08-22T17:26:46.921858+00:00",
+  "checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/calce_partial_iv_anp/20260823_021601_693132_fold0_partial_iv_anp_s42/checkpoints/best.pt",
+  "dataset": "CALCE",
+  "model": "partial_iv_anp",
+  "fold": 0,
+  "seed": 42,
+  "test_cells": [
+    "CALCE_CS2_33",
+    "CALCE_CX2_33",
+    "CALCE_CX2_38"
+  ],
+  "plot_cell": "CALCE_CS2_33",
+  "start_cycle": 100,
+  "end_cycle": 390,
+  "cycle_steps": [
+    10,
+    1
+  ],
+  "beta": null,
+  "betas": [
+    0.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0
+  ],
+  "mc_samples": 50,
+  "plot_snapshot_count": 20,
+  "beta_snapshot_count": 3,
+  "context_policy": "all available through cutoff, uniformly capped at training max_context_points",
+  "max_context_points": 128,
+  "test_time_optimizer": false,
+  "backward_called": false,
+  "num_unique_inferences": 4365,
+  "num_metric_rows": 4815,
+  "num_skipped_rows": 0,
+  "parameter_checksum_before": "8a5fa643e56caf8a9d10650112df45eefbcc8f847eff46887bcb5439688d4ece",
+  "parameter_checksum_after": "8a5fa643e56caf8a9d10650112df45eefbcc8f847eff46887bcb5439688d4ece",
+  "parameters_exactly_equal": true
+}
