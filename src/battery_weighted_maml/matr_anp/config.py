@@ -1,4 +1,4 @@
-"""Typed configuration for the MATR partial I-V ANP experiment."""
+"""Typed configuration for BatteryLife-style partial I-V ANP experiments."""
 
 from __future__ import annotations
 
@@ -110,8 +110,8 @@ class ExperimentConfig:
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
 
     def validate(self) -> None:
-        if self.data.dataset.upper() != "MATR":
-            raise ValueError("this pipeline accepts only the BatteryLife MATR dataset")
+        if self.data.dataset.upper() not in {"MATR", "CALCE"}:
+            raise ValueError("data.dataset must be MATR or CALCE")
         if not self.data.file_globs:
             raise ValueError("data.file_globs cannot be empty")
         if self.data.minimum_valid_cycles < 3:
@@ -192,7 +192,7 @@ class ExperimentConfig:
 def load_config(path: str | Path) -> ExperimentConfig:
     source = Path(path)
     if not source.is_file():
-        raise FileNotFoundError(f"MATR ANP config not found: {source}")
+        raise FileNotFoundError(f"ANP config not found: {source}")
     raw = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
         raise ValueError("configuration root must be a mapping")
@@ -244,7 +244,8 @@ def resolve_data_root(config: ExperimentConfig, cli_data_root: str | None) -> Pa
     raw = cli_data_root or os.environ.get("BATTERYLIFE_DATA_ROOT") or config.paths.data_root
     if not raw:
         raise ValueError(
-            "MATR data root is unset; pass --data-root, set BATTERYLIFE_DATA_ROOT, "
+            f"{config.data.dataset.upper()} data root is unset; pass --data-root, "
+            "set BATTERYLIFE_DATA_ROOT, "
             "or set paths.data_root in the config"
         )
     root = Path(raw).expanduser().resolve()

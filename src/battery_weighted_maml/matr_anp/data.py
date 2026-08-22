@@ -1,4 +1,4 @@
-"""BatteryLife MATR loading, discharge extraction, and data auditing."""
+"""BatteryLife-style MATR/CALCE loading, discharge extraction, and auditing."""
 
 from __future__ import annotations
 
@@ -249,15 +249,17 @@ def _dataset_marker(root: Mapping[str, Any], path: Path) -> str | None:
     for key in ("dataset", "dataset_name", "source_dataset"):
         if key in root:
             return str(root[key])
-    for part in path.parts:
-        if "matr" in part.lower():
-            return "MATR"
+    candidates = [str(root.get("cell_id", "")), path.stem, *map(str, path.parts)]
+    for dataset in ("MATR", "CALCE"):
+        if any(dataset.lower() in candidate.lower() for candidate in candidates):
+            return dataset
     return None
 
 
-def load_matr_cell(path: str | Path, config: DataConfig) -> tuple[CellData, CellAudit]:
-    """Load one trusted BatteryLife/BatteryML MATR pickle."""
+def load_cell(path: str | Path, config: DataConfig) -> tuple[CellData, CellAudit]:
+    """Load one trusted BatteryLife-style MATR or CALCE pickle."""
     source = Path(path)
+    dataset = config.dataset.upper()
     audit = CellAudit(source_file=str(source))
     try:
         with source.open("rb") as handle:
@@ -267,10 +269,10 @@ def load_matr_cell(path: str | Path, config: DataConfig) -> tuple[CellData, Cell
     if not isinstance(root, Mapping):
         raise ValueError(f"{source.name}: pickle root must be a mapping")
     marker = _dataset_marker(root, source)
-    if marker is None or "matr" not in marker.lower():
+    if marker is None or marker.upper() != dataset:
         raise ValueError(
-            f"{source.name}: cannot verify MATR dataset from metadata or path; "
-            "other BatteryLife datasets are intentionally excluded"
+            f"{source.name}: expected {dataset}, but metadata/path identifies "
+            f"{marker or 'no supported dataset'}"
         )
     required = {"cell_id", "nominal_capacity_in_Ah", "cycle_data"}
     missing = required - set(root)
@@ -352,38 +354,42 @@ def load_matr_cell(path: str | Path, config: DataConfig) -> tuple[CellData, Cell
     return CellData(cell_id, str(source), nominal, tuple(cycles)), audit
 
 
-def discover_matr_files(root: str | Path, config: DataConfig) -> list[Path]:
+def discover_dataset_files(root: str | Path, config: DataConfig) -> list[Path]:
     data_root = Path(root)
+    dataset = config.dataset.upper()
     candidates: set[Path] = set()
     for pattern in config.file_globs:
         candidates.update(path for path in data_root.glob(pattern) if path.is_file())
-    # Path-level filtering prevents an adjacent HUST/CALCE directory from ever
-    # reaching pickle.load. Metadata is checked again after loading.
-    matr = sorted(
-        path for path in candidates if any("matr" in part.lower() for part in path.parts)
+    # Path-level filtering prevents adjacent datasets from reaching pickle.load.
+    # Metadata/cell ID is checked again after loading.
+    selected = sorted(
+        path
+        for path in candidates
+        if any(dataset.lower() in part.lower() for part in path.parts)
     )
-    if not matr:
+    if not selected:
         raise FileNotFoundError(
-            f"no MATR pickle files found below {data_root}; searched {config.file_globs}. "
-            "The MATR directory or file names must contain 'MATR'."
+            f"no {dataset} pickle files found below {data_root}; searched "
+            f"{config.file_globs}. The directory or file names must contain '{dataset}'."
         )
-    return matr
+    return selected
 
 
-def load_matr_dataset(
+def load_dataset(
     root: str | Path,
     config: DataConfig,
     *,
     tolerate_invalid_cells: bool = False,
 ) -> tuple[list[CellData], pd.DataFrame]:
+    dataset = config.dataset.upper()
     cells: list[CellData] = []
     audits: list[dict[str, Any]] = []
     cell_ids: set[str] = set()
-    for path in discover_matr_files(root, config):
+    for path in discover_dataset_files(root, config):
         try:
-            cell, audit = load_matr_cell(path, config)
+            cell, audit = load_cell(path, config)
             if cell.cell_id in cell_ids:
-                raise ValueError(f"duplicate MATR cell_id across files: {cell.cell_id}")
+                raise ValueError(f"duplicate {dataset} cell_id across files: {cell.cell_id}")
             cell_ids.add(cell.cell_id)
             cells.append(cell)
             audits.append(audit.to_dict())
@@ -394,3 +400,9 @@ def load_matr_dataset(
                 raise
     cells.sort(key=lambda cell: cell.cell_id)
     return cells, pd.DataFrame(audits)
+
+
+# Backward-compatible names retained for the existing MATR scripts/tests.
+load_matr_cell = load_cell
+discover_matr_files = discover_dataset_files
+load_matr_dataset = load_dataset

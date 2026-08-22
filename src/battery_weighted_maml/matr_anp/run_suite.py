@@ -1,4 +1,4 @@
-"""Sequential portable runner for all MATR ANP models and cell folds."""
+"""Sequential portable runner for all MATR/CALCE ANP models and cell folds."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .compare_results import compare_evaluations
 from .config import load_config, resolve_data_root
 from .evaluate import evaluate_run
 from .model import MODEL_NAMES
@@ -14,9 +15,9 @@ from .runtime import write_json
 from .train import train_run
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run a MATR ANP model/fold suite")
-    parser.add_argument("--config", default="configs/matr_partial_iv_anp.yaml")
+def parse_args(default_config: str = "configs/matr_partial_iv_anp.yaml") -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run an ANP model/fold suite")
+    parser.add_argument("--config", default=default_config)
     parser.add_argument("--data-root")
     parser.add_argument("--device")
     parser.add_argument("--models", nargs="+", choices=MODEL_NAMES, default=list(MODEL_NAMES))
@@ -26,8 +27,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
+def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
+    args = parse_args(default_config)
     config = load_config(args.config)
     if args.device:
         config.device = args.device
@@ -51,10 +52,12 @@ def main() -> None:
     manifest = {
         "status": "running",
         "started_at_utc": datetime.now(timezone.utc).isoformat(),
+        "dataset": config.data.dataset.upper(),
         "models": args.models,
         "folds": folds,
         "max_steps_override": args.max_steps,
         "evaluate": args.evaluate,
+        "comparison_directory": None,
         "runs": records,
     }
     write_json(suite_directory / "suite_manifest.json", manifest)
@@ -102,6 +105,18 @@ def main() -> None:
                 print(f"Suite failed; diagnostic manifest: {suite_directory / 'suite_manifest.json'}")
                 raise
             write_json(suite_directory / "suite_manifest.json", manifest)
+    evaluation_directories = [
+        record["evaluation_directory"]
+        for record in records
+        if record.get("evaluation_directory")
+    ]
+    if len(evaluation_directories) >= 2:
+        manifest["comparison_directory"] = str(
+            compare_evaluations(
+                evaluation_directories,
+                suite_directory / "model_comparison",
+            )
+        )
     manifest["status"] = "completed"
     manifest["completed_at_utc"] = datetime.now(timezone.utc).isoformat()
     write_json(suite_directory / "suite_manifest.json", manifest)

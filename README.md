@@ -1,5 +1,7 @@
 # Direct Target-aware Weighted MAML for Battery SOH Forecasting
 
+The CALCE version of the SOH-only/partial-I-V ANP pipeline is documented in [CALCE_PARTIAL_IV_ANP.md](CALCE_PARTIAL_IV_ANP.md).
+
 새 BatteryLife MATR 기반 SOH trajectory 실험은 [MATR_PARTIAL_IV_ANP.md](MATR_PARTIAL_IV_ANP.md)에 독립적으로 정리되어 있습니다. 이 파이프라인은 RUL/EOL을 예측하지 않으며, partial discharge I–V로 조건화한 Attentive Neural Process를 사용합니다.
 
 논문식 unweighted full second-order MAML 재현 코드는 기존 실험과 분리된

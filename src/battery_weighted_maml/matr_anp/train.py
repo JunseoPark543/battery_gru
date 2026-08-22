@@ -1,4 +1,4 @@
-"""Training CLI for leakage-safe cell-level MATR ANP folds."""
+"""Training CLI for leakage-safe cell-level MATR/CALCE ANP folds."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from torch import nn
 from tqdm.auto import tqdm
 
 from .config import ExperimentConfig, load_config, resolve_data_root, save_config
-from .data import CellData, load_matr_dataset
+from .data import CellData, load_dataset
 from .episodes import EpisodeSampler, collate_episodes
 from .features import EpisodeUnavailable, FoldScalers, PartialIVProcessor
 from .losses import anp_elbo_loss
@@ -98,7 +98,7 @@ def _checkpoint_payload(
 ) -> dict[str, Any]:
     return {
         "algorithm": "attentive_neural_process",
-        "dataset": "MATR",
+        "dataset": config.data.dataset.upper(),
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "amp_scaler_state_dict": scaler.state_dict(),
@@ -190,7 +190,8 @@ def train_run(
         resolved.training.max_steps = max_steps
     resolved.validate()
     seed_everything(resolved.seed, resolved.training.deterministic)
-    cells, audit = load_matr_dataset(
+    dataset = resolved.data.dataset.upper()
+    cells, audit = load_dataset(
         data_root, resolved.data, tolerate_invalid_cells=True
     )
     splits = make_splits([cell.cell_id for cell in cells], resolved.split)
@@ -212,7 +213,7 @@ def train_run(
         checkpoint_path = Path(resume).resolve()
         run_dir = checkpoint_path.parent.parent
         payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-        if payload["dataset"] != "MATR" or payload["model_spec"]["model_name"] != model_name:
+        if payload["dataset"] != dataset or payload["model_spec"]["model_name"] != model_name:
             raise ValueError("resume checkpoint dataset/model mismatch")
         saved_config = payload["config"]
         current_config = resolved.to_dict()
@@ -288,7 +289,7 @@ def train_run(
     manifest = {
         "status": "running",
         "started_at_utc": datetime.now(timezone.utc).isoformat(),
-        "dataset": "MATR",
+        "dataset": dataset,
         "algorithm": "attentive_neural_process",
         "model": model_name,
         "model_spec": model_spec.to_dict(),
@@ -303,8 +304,9 @@ def train_run(
     write_json(run_dir / "run_manifest.json", manifest)
     train_soh = np.concatenate([cell.soh for cell in train_cells])
     logger.info(
-        "MATR fold=%d model=%s parameters=%d hidden=%d train_cells=%d "
+        "%s fold=%d model=%s parameters=%d hidden=%d train_cells=%d "
         "validation_cells=%d test_cells=%d",
+        dataset,
         fold,
         model_name,
         model_spec.parameter_count,
@@ -351,7 +353,7 @@ def train_run(
     began = time.perf_counter()
     progress = tqdm(
         range(start_step, resolved.training.max_steps + 1),
-        desc=f"MATR-{model_name}-fold{fold}",
+        desc=f"{dataset}-{model_name}-fold{fold}",
         unit="step",
     )
     last_step = start_step - 1
@@ -369,7 +371,9 @@ def train_run(
         while len(episodes) < resolved.training.batch_size:
             attempts += 1
             if attempts > resolved.training.batch_size * 50:
-                raise RuntimeError("could not sample enough valid MATR training episodes")
+                raise RuntimeError(
+                    f"could not sample enough valid {dataset} training episodes"
+                )
             cell = train_cells[int(rng.integers(0, len(train_cells)))]
             try:
                 episodes.append(sampler.sample_training(cell, rng))
@@ -713,13 +717,13 @@ def train_run(
         }
     )
     write_json(run_dir / "run_manifest.json", manifest)
-    logger.info("Completed MATR ANP run: %s", run_dir)
+    logger.info("Completed %s ANP run: %s", dataset, run_dir)
     return run_dir
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train one cell-level MATR ANP fold")
-    parser.add_argument("--config", default="configs/matr_partial_iv_anp.yaml")
+def parse_args(default_config: str = "configs/matr_partial_iv_anp.yaml") -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Train one cell-level ANP fold")
+    parser.add_argument("--config", default=default_config)
     parser.add_argument("--model", choices=MODEL_NAMES, required=True)
     parser.add_argument("--fold", type=int, required=True)
     parser.add_argument("--data-root")
@@ -729,8 +733,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
+def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
+    args = parse_args(default_config)
     config = load_config(args.config)
     if args.device:
         config.device = args.device

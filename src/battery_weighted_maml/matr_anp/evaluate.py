@@ -1,4 +1,4 @@
-"""Held-out cell evaluation for MATR ANP checkpoints."""
+"""Held-out cell evaluation for MATR/CALCE ANP checkpoints."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import pandas as pd
 import torch
 
 from .config import ExperimentConfig, load_config, resolve_data_root, save_config
-from .data import load_matr_dataset
+from .data import load_dataset
 from .episodes import EpisodeSampler
 from .features import EpisodeUnavailable, FoldScalers, PartialIVProcessor
 from .inference import (
@@ -76,11 +76,14 @@ def evaluate_run(
     mc_samples: int | None = None,
 ) -> Path:
     source = Path(checkpoint).resolve()
+    dataset = config.data.dataset.upper()
     if not source.is_file():
-        raise FileNotFoundError(f"MATR ANP checkpoint not found: {source}")
+        raise FileNotFoundError(f"{dataset} ANP checkpoint not found: {source}")
     payload = torch.load(source, map_location="cpu", weights_only=False)
-    if payload.get("dataset") != "MATR" or payload.get("algorithm") != "attentive_neural_process":
-        raise ValueError("checkpoint is not a MATR Attentive Neural Process checkpoint")
+    if payload.get("dataset") != dataset or payload.get("algorithm") != "attentive_neural_process":
+        raise ValueError(
+            f"checkpoint is not a {dataset} Attentive Neural Process checkpoint"
+        )
     _validate_checkpoint_config(config, payload)
     sample_count = mc_samples or config.evaluation.mc_samples
     if sample_count <= 0:
@@ -100,12 +103,12 @@ def evaluate_run(
     model.to(device).eval()
     checksum_before = parameter_checksum(model)
 
-    cells, audit = load_matr_dataset(data_root, config.data, tolerate_invalid_cells=True)
+    cells, audit = load_dataset(data_root, config.data, tolerate_invalid_cells=True)
     by_id = {cell.cell_id: cell for cell in cells}
     split = payload["fold_split"]
     missing = sorted(set(split["test_cells"]) - set(by_id))
     if missing:
-        raise ValueError(f"checkpoint test cells are missing from MATR data: {missing}")
+        raise ValueError(f"checkpoint test cells are missing from {dataset} data: {missing}")
     scalers = FoldScalers.from_dict(payload["scalers"])
     if set(scalers.fit_cell_ids) != set(split["train_cells"]):
         raise ValueError("checkpoint scalers were not fit on exactly the fold training cells")
@@ -236,7 +239,7 @@ def evaluate_run(
             "status": "completed",
             "completed_at_utc": datetime.now(timezone.utc).isoformat(),
             "checkpoint": str(source),
-            "dataset": "MATR",
+            "dataset": dataset,
             "model": model_name,
             "fold": fold,
             "seed": config.seed,
@@ -252,10 +255,10 @@ def evaluate_run(
     return destination
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate a held-out MATR ANP fold")
+def parse_args(default_config: str = "configs/matr_partial_iv_anp.yaml") -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Evaluate a held-out ANP fold")
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--config", default="configs/matr_partial_iv_anp.yaml")
+    parser.add_argument("--config", default=default_config)
     parser.add_argument("--data-root")
     parser.add_argument("--device")
     parser.add_argument("--mc-samples", type=int)
@@ -264,8 +267,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
+def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
+    args = parse_args(default_config)
     config = load_config(args.config)
     if args.device:
         config.device = args.device

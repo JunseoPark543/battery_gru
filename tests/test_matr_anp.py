@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pickle
 from dataclasses import replace
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from battery_weighted_maml.matr_anp.data import (
     CellData,
     DischargeCurve,
     extract_discharge_curve,
+    load_dataset,
     load_matr_dataset,
 )
 from battery_weighted_maml.matr_anp.episodes import EpisodeSampler, collate_episodes
@@ -102,6 +104,48 @@ def test_fixed_grid_reference_beta_and_train_only_scaler(synthetic) -> None:
     assert scalers.fit_cell_ids == sorted(cell.cell_id for cell in cells[:4])
     assert not set(scalers.fit_cell_ids) & {cells[4].cell_id, cells[5].cell_id}
     assert scalers.transform_cycles(np.asarray([scalers.max_cycle_train + 10]))[0] > 1.0
+
+
+def test_calce_uses_the_same_cell_and_partial_iv_pipeline(tmp_path: Path) -> None:
+    matr_root = write_synthetic_matr_dataset(
+        tmp_path, num_cells=4, num_cycles=28, signal_points=32
+    )
+    calce_root = tmp_path / "CALCE"
+    calce_root.mkdir()
+    for index, source in enumerate(sorted(matr_root.glob("*.pkl"))):
+        with source.open("rb") as handle:
+            payload = pickle.load(handle)
+        payload["dataset"] = "CALCE"
+        payload["cell_id"] = f"CALCE_SYNTH_{index:02d}"
+        destination = calce_root / f"CALCE_SYNTH_{index:02d}.pkl"
+        with destination.open("wb") as handle:
+            pickle.dump(payload, handle)
+
+    data_config = DataConfig(
+        dataset="CALCE",
+        minimum_valid_cycles=24,
+        minimum_discharge_points=8,
+        short_signal_threshold=12,
+    )
+    config = ExperimentConfig(data=data_config)
+    config.validate()
+    cells, audit = load_dataset(calce_root, data_config)
+    assert len(cells) == 4
+    assert (audit["status"] == "valid").all()
+    assert all(cell.cell_id.startswith("CALCE_") for cell in cells)
+
+    processor = PartialIVProcessor(QGridConfig(num_points=32), data_config)
+    scalers = FoldScalers.fit(cells[:3], processor, minimum_current_position=9)
+    config.episode.minimum_current_cycle_position = 10
+    config.episode.training_alpha_range = [0.3, 0.7]
+    config.episode.min_context_points = 4
+    config.episode.max_context_points = 16
+    config.episode.max_target_points = 16
+    episode = EpisodeSampler(config.episode, processor, scalers).evaluation(
+        cells[-1], 0.5, 0.5
+    )
+    assert episode.iv_feature.shape == (3, 32)
+    assert episode.iv_feature[2].sum() > 0
 
 
 def test_interpolation_never_extrapolates_and_missing_reference_falls_back(synthetic) -> None:
