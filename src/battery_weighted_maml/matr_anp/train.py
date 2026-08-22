@@ -179,6 +179,7 @@ def train_run(
     *,
     resume: str | Path | None = None,
     max_steps: int | None = None,
+    batch_size: int | None = None,
     output_root: str | Path | None = None,
 ) -> Path:
     if model_name not in MODEL_NAMES:
@@ -188,6 +189,10 @@ def train_run(
         if max_steps <= 0:
             raise ValueError("max_steps override must be positive")
         resolved.training.max_steps = max_steps
+    if batch_size is not None:
+        if batch_size <= 0:
+            raise ValueError("batch_size override must be positive")
+        resolved.training.batch_size = batch_size
     resolved.validate()
     seed_everything(resolved.seed, resolved.training.deterministic)
     dataset = resolved.data.dataset.upper()
@@ -300,7 +305,17 @@ def train_run(
         "seed": resolved.seed,
         "git_commit": git_commit(),
         "data_root": str(Path(data_root).resolve()),
+        "cuda_available": torch.cuda.is_available(),
+        "torch_cuda_version": torch.version.cuda,
+        "feature_cache": processor.cache_info(),
     }
+    if device.type == "cuda":
+        manifest.update(
+            {
+                "cuda_device_name": torch.cuda.get_device_name(device),
+                "cuda_device_capability": list(torch.cuda.get_device_capability(device)),
+            }
+        )
     write_json(run_dir / "run_manifest.json", manifest)
     train_soh = np.concatenate([cell.soh for cell in train_cells])
     logger.info(
@@ -349,6 +364,21 @@ def train_run(
         resolved.training.gradient_clip_norm,
         resolved.training.log_interval,
     )
+    if device.type == "cuda":
+        logger.info(
+            "cuda device_name=%s capability=%s torch_cuda=%s current_device=%d",
+            torch.cuda.get_device_name(device),
+            torch.cuda.get_device_capability(device),
+            torch.version.cuda,
+            torch.cuda.current_device(),
+        )
+    cache = processor.cache_info()
+    logger.info(
+        "feature_cache grid_curves=%d references=%d raw_features=%d",
+        cache["grid_curves"],
+        cache["references"],
+        cache["raw_features"],
+    )
 
     began = time.perf_counter()
     progress = tqdm(
@@ -366,6 +396,7 @@ def train_run(
     successful_updates = len(records) - total_amp_overflows
     consecutive_amp_overflows = 0
     for step in progress:
+        step_started = time.perf_counter()
         episodes = []
         attempts = 0
         while len(episodes) < resolved.training.batch_size:
@@ -379,7 +410,11 @@ def train_run(
                 episodes.append(sampler.sample_training(cell, rng))
             except EpisodeUnavailable:
                 continue
-        batch = collate_episodes(episodes).to(device)
+        sampling_finished = time.perf_counter()
+        batch = collate_episodes(episodes)
+        collation_finished = time.perf_counter()
+        batch.to(device)
+        transfer_finished = time.perf_counter()
         kl_weight = (
             1.0
             if resolved.training.kl_warmup_steps == 0
@@ -447,6 +482,9 @@ def train_run(
             "amp_scale_before": amp_scale_before,
             "amp_scale_after": np.nan,
             "batch_sampling_attempts": attempts,
+            "batch_sampling_seconds": sampling_finished - step_started,
+            "batch_collation_seconds": collation_finished - sampling_finished,
+            "batch_transfer_seconds": transfer_finished - collation_finished,
             "batch_cells": "|".join(episode.cell_id for episode in episodes),
             "batch_current_cycles": "|".join(
                 str(episode.current_cycle) for episode in episodes
@@ -569,6 +607,7 @@ def train_run(
                 loss=f"{record['loss']:.4g}",
                 status="amp-overflow-skip",
                 scale=f"{record['amp_scale_after']:.0f}",
+                refresh=False,
             )
             if (
                 consecutive_amp_overflows
@@ -639,6 +678,7 @@ def train_run(
             loss=f"{record['loss']:.4g}",
             val=(f"{record['validation_rmse']:.4g}" if validate_now else "-"),
             scale=f"{record['amp_scale_after']:.0f}" if amp_enabled else "off",
+            refresh=False,
         )
         if step % resolved.training.log_interval == 0 or validate_now or step == start_step:
             completed_attempts = step - start_step + 1
@@ -651,7 +691,8 @@ def train_run(
                 "step=%d/%d loss=%.7g nll=%.7g kl=%.7g kl_weight=%.4f "
                 "grad=%.6g update=APPLIED successful_updates=%d amp_scale=%.7g->%.7g "
                 "validation_rmse=%s best=%.7g@%d stale=%d overflows=%d "
-                "elapsed=%.1fs eta=%.1fs gpu_mb=%.1f/%.1f",
+                "elapsed=%.1fs eta=%.1fs gpu_mb=%.1f/%.1f "
+                "data_ms=%.2f collate_ms=%.2f transfer_ms=%.2f",
                 step, resolved.training.max_steps, record["loss"], record["nll"],
                 record["kl"], kl_weight, gradient_norm, successful_updates,
                 record["amp_scale_before"], record["amp_scale_after"],
@@ -659,6 +700,9 @@ def train_run(
                 best_validation_rmse, best_step, stale_validations,
                 total_amp_overflows, record["elapsed_seconds"], eta_seconds,
                 allocated_mb, reserved_mb,
+                1000.0 * record["batch_sampling_seconds"],
+                1000.0 * record["batch_collation_seconds"],
+                1000.0 * record["batch_transfer_seconds"],
             )
             logger.info(
                 "batch step=%d cells=%s cycles=%s betas=%s attempts=%d "
@@ -728,6 +772,7 @@ def parse_args(default_config: str = "configs/matr_partial_iv_anp.yaml") -> argp
     parser.add_argument("--fold", type=int, required=True)
     parser.add_argument("--data-root")
     parser.add_argument("--max-steps", type=int)
+    parser.add_argument("--batch-size", type=int)
     parser.add_argument("--resume")
     parser.add_argument("--device")
     return parser.parse_args()
@@ -741,7 +786,7 @@ def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
     data_root = resolve_data_root(config, args.data_root)
     run_dir = train_run(
         config, args.model, args.fold, data_root,
-        resume=args.resume, max_steps=args.max_steps,
+        resume=args.resume, max_steps=args.max_steps, batch_size=args.batch_size,
     )
     print(f"Run directory: {run_dir}")
 

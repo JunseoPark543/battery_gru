@@ -130,6 +130,51 @@ class PartialIVProcessor:
         )
         self.grid_config = grid_config
         self.data_config = data_config
+        # Feature construction used to repeat interpolation and reference-curve
+        # aggregation for every sampled episode.  A training fold revisits the
+        # same cell/cycle thousands of times, so retain these immutable results.
+        self._grid_curve_cache: dict[tuple[str, str, int], GridCurve] = {}
+        self._cycle_lookup_cache: dict[
+            tuple[str, str], tuple[dict[int, CycleData], tuple[CycleData, ...]]
+        ] = {}
+        self._reference_cache: dict[
+            tuple[str, str, tuple[int, ...]],
+            tuple[np.ndarray, np.ndarray, tuple[int, ...]],
+        ] = {}
+        self._raw_feature_cache: dict[
+            tuple[str, str, int],
+            tuple[np.ndarray, np.ndarray, np.ndarray, tuple[int, ...]],
+        ] = {}
+
+    @staticmethod
+    def _cell_key(cell: CellData) -> tuple[str, str]:
+        return cell.source_file, cell.cell_id
+
+    @staticmethod
+    def _readonly(array: np.ndarray) -> np.ndarray:
+        array.setflags(write=False)
+        return array
+
+    def cache_info(self) -> dict[str, int]:
+        """Return cache sizes for startup/training diagnostics."""
+        return {
+            "grid_curves": len(self._grid_curve_cache),
+            "references": len(self._reference_cache),
+            "raw_features": len(self._raw_feature_cache),
+        }
+
+    def _cycle_lookup(
+        self, cell: CellData
+    ) -> tuple[dict[int, CycleData], tuple[CycleData, ...]]:
+        key = self._cell_key(cell)
+        cached = self._cycle_lookup_cache.get(key)
+        if cached is not None:
+            return cached
+        by_number = {cycle.cycle_number: cycle for cycle in cell.cycles}
+        curves = tuple(cycle for cycle in cell.cycles if cycle.discharge is not None)
+        result = by_number, curves
+        self._cycle_lookup_cache[key] = result
+        return result
 
     def interpolate(self, curve: DischargeCurve) -> GridCurve:
         """Interpolate only inside the observed q range; never extrapolate."""
@@ -145,23 +190,40 @@ class PartialIVProcessor:
             )
         return GridCurve(voltage, current, mask)
 
+    def _interpolate_cycle(self, cell: CellData, cycle: CycleData) -> GridCurve:
+        if cycle.discharge is None:
+            raise EpisodeUnavailable(
+                f"{cell.cell_id} cycle {cycle.cycle_number}: discharge unavailable"
+            )
+        key = (*self._cell_key(cell), cycle.cycle_number)
+        cached = self._grid_curve_cache.get(key)
+        if cached is not None:
+            return cached
+        curve = self.interpolate(cycle.discharge)
+        frozen = GridCurve(
+            self._readonly(curve.voltage_v),
+            self._readonly(curve.current_a_magnitude),
+            self._readonly(curve.mask),
+        )
+        self._grid_curve_cache[key] = frozen
+        return frozen
+
     def _reference(
         self, cell: CellData, current_cycle_number: int
     ) -> tuple[np.ndarray, np.ndarray, tuple[int, ...]]:
-        previous = [
-            cycle
-            for cycle in cell.cycles
-            if cycle.cycle_number < current_cycle_number and cycle.discharge is not None
-        ]
-        by_number = {cycle.cycle_number: cycle for cycle in previous}
+        by_number, curve_cycles = self._cycle_lookup(cell)
         selected: list[CycleData] = [
             by_number[number]
             for number in self.data_config.reference_cycles
-            if number in by_number
+            if number < current_cycle_number
+            and number in by_number
+            and by_number[number].discharge is not None
         ]
         selected_numbers = {cycle.cycle_number for cycle in selected}
-        for cycle in previous:
+        for cycle in curve_cycles:
             if len(selected) >= self.data_config.minimum_reference_cycles:
+                break
+            if cycle.cycle_number >= current_cycle_number:
                 break
             if cycle.cycle_number not in selected_numbers:
                 selected.append(cycle)
@@ -171,7 +233,12 @@ class PartialIVProcessor:
                 f"{cell.cell_id} cycle {current_cycle_number}: only {len(selected)} "
                 "valid earlier reference cycles"
             )
-        curves = [self.interpolate(cycle.discharge) for cycle in selected if cycle.discharge]
+        reference_cycles = tuple(cycle.cycle_number for cycle in selected)
+        cache_key = (*self._cell_key(cell), reference_cycles)
+        cached = self._reference_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        curves = [self._interpolate_cycle(cell, cycle) for cycle in selected]
         voltage_stack = np.stack([curve.voltage_v for curve in curves])
         mask_stack = np.stack([curve.mask for curve in curves])
         counts = mask_stack.sum(axis=0)
@@ -183,17 +250,33 @@ class PartialIVProcessor:
         reference[reference_mask] = np.nanmedian(
             masked_voltage[:, reference_mask], axis=0
         )
-        return reference, reference_mask, tuple(cycle.cycle_number for cycle in selected)
+        result = (
+            self._readonly(reference),
+            self._readonly(reference_mask),
+            reference_cycles,
+        )
+        self._reference_cache[cache_key] = result
+        return result
 
     def raw_feature(
         self, cell: CellData, current_cycle_number: int
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[int, ...]]:
-        current_cycle = cell.cycle_by_number(current_cycle_number)
+        cache_key = (*self._cell_key(cell), int(current_cycle_number))
+        cached = self._raw_feature_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        by_number, _ = self._cycle_lookup(cell)
+        try:
+            current_cycle = by_number[int(current_cycle_number)]
+        except KeyError as exc:
+            raise EpisodeUnavailable(
+                f"{cell.cell_id}: cycle {current_cycle_number} is unavailable"
+            ) from exc
         if current_cycle.discharge is None:
             raise EpisodeUnavailable(
                 f"{cell.cell_id} cycle {current_cycle_number}: current discharge unavailable"
             )
-        current_curve = self.interpolate(current_cycle.discharge)
+        current_curve = self._interpolate_cycle(cell, current_cycle)
         reference, reference_mask, reference_cycles = self._reference(
             cell, current_cycle_number
         )
@@ -206,7 +289,14 @@ class PartialIVProcessor:
         delta[valid] = current_curve.voltage_v[valid] - reference[valid]
         current = np.zeros_like(self.grid)
         current[valid] = current_curve.current_a_magnitude[valid]
-        return delta, current, valid, reference_cycles
+        result = (
+            self._readonly(delta),
+            self._readonly(current),
+            self._readonly(valid),
+            reference_cycles,
+        )
+        self._raw_feature_cache[cache_key] = result
+        return result
 
     def build(
         self,

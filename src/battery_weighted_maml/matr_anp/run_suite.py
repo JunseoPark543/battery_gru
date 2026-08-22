@@ -23,6 +23,7 @@ def parse_args(default_config: str = "configs/matr_partial_iv_anp.yaml") -> argp
     parser.add_argument("--models", nargs="+", choices=MODEL_NAMES, default=list(MODEL_NAMES))
     parser.add_argument("--folds", nargs="+", type=int)
     parser.add_argument("--max-steps", type=int)
+    parser.add_argument("--batch-size", type=int)
     parser.add_argument("--evaluate", action="store_true")
     return parser.parse_args()
 
@@ -56,6 +57,7 @@ def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
         "models": args.models,
         "folds": folds,
         "max_steps_override": args.max_steps,
+        "batch_size_override": args.batch_size,
         "evaluate": args.evaluate,
         "comparison_directory": None,
         "runs": records,
@@ -80,6 +82,7 @@ def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
                     fold,
                     data_root,
                     max_steps=args.max_steps,
+                    batch_size=args.batch_size,
                 )
                 record["run_directory"] = str(run_directory)
                 record["best_checkpoint"] = str(

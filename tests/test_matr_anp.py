@@ -84,7 +84,7 @@ def test_data_root_priority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_fixed_grid_reference_beta_and_train_only_scaler(synthetic) -> None:
-    _, cells, audit, processor, scalers, _ = synthetic
+    _, cells, audit, processor, scalers, config = synthetic
     assert (audit["status"] == "valid").all()
     cell = cells[0]
     assert np.isclose(cell.cycles[-1].soh, cell.cycles[-1].discharge_capacity_ah / cell.nominal_capacity_ah)
@@ -92,6 +92,16 @@ def test_fixed_grid_reference_beta_and_train_only_scaler(synthetic) -> None:
     # q is nominal-capacity based: an aged cycle does not end at one by construction.
     assert cell.cycles[-1].discharge.q[-1] < 1.0
     delta, current, valid, references = processor.raw_feature(cell, 20)
+    cache_after_first = processor.cache_info()
+    cached_delta, cached_current, cached_valid, cached_references = (
+        processor.raw_feature(cell, 20)
+    )
+    assert cached_delta is delta
+    assert cached_current is current
+    assert cached_valid is valid
+    assert cached_references == references
+    assert processor.cache_info() == cache_after_first
+    assert not delta.flags.writeable and not current.flags.writeable
     assert references and max(references) < 20
     assert np.median(delta[valid]) < 0.0  # current voltage minus an earlier/higher reference
     assert np.all(current[valid] > 0.0)  # current polarity is converted to magnitude
@@ -104,6 +114,12 @@ def test_fixed_grid_reference_beta_and_train_only_scaler(synthetic) -> None:
     assert scalers.fit_cell_ids == sorted(cell.cell_id for cell in cells[:4])
     assert not set(scalers.fit_cell_ids) & {cells[4].cell_id, cells[5].cell_id}
     assert scalers.transform_cycles(np.asarray([scalers.max_cycle_train + 10]))[0] > 1.0
+
+    sampler = EpisodeSampler(config=config.episode, processor=processor, scalers=scalers)
+    first_positions = sampler._eligible_positions(cell)
+    second_positions = sampler._eligible_positions(cell)
+    assert first_positions is second_positions
+    assert len(sampler._eligible_positions_cache) == 1
 
 
 def test_calce_uses_the_same_cell_and_partial_iv_pipeline(tmp_path: Path) -> None:

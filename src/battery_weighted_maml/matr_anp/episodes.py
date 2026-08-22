@@ -61,9 +61,22 @@ class EpisodeSampler:
         self.config = config
         self.processor = processor
         self.scalers = scalers
+        self._eligible_positions_cache: dict[
+            tuple[str, str, int, int, int], tuple[int, ...]
+        ] = {}
 
-    def _eligible_positions(self, cell: CellData) -> list[int]:
+    def _eligible_positions(self, cell: CellData) -> tuple[int, ...]:
         count = len(cell.cycles)
+        cache_key = (
+            cell.source_file,
+            cell.cell_id,
+            count,
+            int(cell.cycles[0].cycle_number),
+            int(cell.cycles[-1].cycle_number),
+        )
+        cached = self._eligible_positions_cache.get(cache_key)
+        if cached is not None:
+            return cached
         low = max(
             self.config.minimum_current_cycle_position - 1,
             int(np.floor(self.config.training_alpha_range[0] * count)) - 1,
@@ -80,7 +93,9 @@ class EpisodeSampler:
             except EpisodeUnavailable:
                 continue
             positions.append(position)
-        return positions
+        result = tuple(positions)
+        self._eligible_positions_cache[cache_key] = result
+        return result
 
     def sample_training(self, cell: CellData, rng: np.random.Generator) -> Episode:
         eligible = self._eligible_positions(cell)

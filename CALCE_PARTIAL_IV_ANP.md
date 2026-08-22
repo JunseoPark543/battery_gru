@@ -16,6 +16,7 @@ git pull --rebase origin main
 
 python -m battery_weighted_maml.calce_anp.run_suite \
   --device cuda \
+  --batch-size 64 \
   --models soh_only_anp partial_iv_anp \
   --folds 0 \
   --evaluate
@@ -23,11 +24,14 @@ python -m battery_weighted_maml.calce_anp.run_suite \
 
 결과는 `outputs/calce_partial_iv_anp/`에 저장된다. suite 폴더의 `model_comparison/`에는 두 모델의 통합 CSV와 RMSE 비교 plot이 자동 생성된다. 먼저 짧게 확인하려면 위 명령에 `--max-steps 100`을 추가한다.
 
+CUDA 실행 시 로그의 `runtime device=cuda`, `cuda device_name=...`으로 실제 device를 확인할 수 있다. 반복되는 cycle별 I-V interpolation/reference 계산은 fold 메모리 cache에서 재사용하며, `data_ms`, `collate_ms`, `transfer_ms`가 10 step마다 기록된다. 16 GB GPU에서는 `--batch-size 64`를 권장하며 OOM이면 32로 낮춘다.
+
 ## 전체 5-fold 비교
 
 ```bash
 python -m battery_weighted_maml.calce_anp.run_suite \
   --device cuda \
+  --batch-size 64 \
   --models soh_only_anp partial_iv_anp \
   --folds 0 1 2 3 4 \
   --evaluate
@@ -37,6 +41,8 @@ python -m battery_weighted_maml.calce_anp.run_suite \
 
 ```bash
 python -m battery_weighted_maml.calce_anp.train \
-  --model partial_iv_anp --fold 0 --device cuda \
+  --model partial_iv_anp --fold 0 --device cuda --batch-size 64 \
   --resume outputs/calce_partial_iv_anp/<RUN>/checkpoints/last.pt
 ```
+
+Resume할 때는 최초 실행과 같은 `--batch-size`를 지정해야 한다.
