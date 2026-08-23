@@ -42,6 +42,10 @@ from battery_weighted_maml.matr_anp.plot_data_trajectories import (
     trajectory_frame,
     trajectory_summary,
 )
+from battery_weighted_maml.matr_anp.plot_voltage_cycles import (
+    plot_voltage_grid,
+    select_cells,
+)
 from battery_weighted_maml.matr_anp.runtime import parameter_checksum
 from battery_weighted_maml.matr_anp.smoke_test import run_smoke
 from battery_weighted_maml.matr_anp.splits import make_splits
@@ -295,6 +299,27 @@ def test_matr_data_trajectory_plot(synthetic, tmp_path: Path) -> None:
         dpi=80,
     )
     assert destination.is_file()
+
+
+def test_random_cell_all_cycle_voltage_grid(synthetic, tmp_path: Path) -> None:
+    _, cells, _, _, _, _ = synthetic
+    first = select_cells(cells, count=4, seed=42)
+    second = select_cells(cells, count=4, seed=42)
+    assert [cell.cell_id for cell in first] == [cell.cell_id for cell in second]
+    assert len({cell.cell_id for cell in first}) == 4
+
+    destination = tmp_path / "matr_voltage_cycles.png"
+    summary = plot_voltage_grid(
+        first,
+        destination,
+        columns=2,
+        q_min=0.0,
+        q_max=0.8,
+        dpi=80,
+    )
+    assert destination.is_file()
+    assert len(summary) == 4
+    assert summary["plotted_cycles"].gt(0).all()
 
 
 def _small_model_config() -> ModelConfig:
