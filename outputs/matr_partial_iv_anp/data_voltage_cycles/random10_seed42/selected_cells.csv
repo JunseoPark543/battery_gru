@@ -1,0 +1,11 @@
+plot_order,cell_id,source_file,total_valid_cycles,plotted_cycles,first_plotted_cycle,last_plotted_cycle,q_min,q_max,voltage_min_v,voltage_max_v
+1,MATR_b4c6,/home/JunseoPark/바탕화면/battery_gru/data/MATR/MATR_b4c6.pkl,777,777,1,777,2.3585092727272728e-06,0.945004,1.9972386,3.5864873
+2,MATR_b4c0,/home/JunseoPark/바탕화면/battery_gru/data/MATR/MATR_b4c0.pkl,982,982,1,982,2.052450727272727e-06,0.9489267272727272,1.9974914,3.5868382
+3,MATR_b1c25,/home/JunseoPark/바탕화면/battery_gru/data/MATR/MATR_b1c25.pkl,852,852,1,852,1.2352969090909088e-09,0.9817391818181816,1.9977818,3.5901556
+4,MATR_b3c30,/home/JunseoPark/바탕화면/battery_gru/data/MATR/MATR_b3c30.pkl,933,933,1,933,5.017339181818182e-07,0.9748542727272725,1.9948874,3.5870495
+5,MATR_b2c38,/home/JunseoPark/바탕화면/battery_gru/data/MATR/MATR_b2c38.pkl,486,486,1,486,2.5747803636363635e-06,0.977953,1.9979453,3.5897756
+6,MATR_b4c44,/home/JunseoPark/바탕화면/battery_gru/data/MATR/MATR_b4c44.pkl,1077,1077,1,1077,0.0,0.9528385454545454,1.997138,3.5868244
+7,MATR_b3c41,/home/JunseoPark/바탕화면/battery_gru/data/MATR/MATR_b3c41.pkl,784,784,1,784,2.760136818181818e-07,0.9589852727272726,1.988997,3.586493
+8,MATR_b1c26,/home/JunseoPark/바탕화면/battery_gru/data/MATR/MATR_b1c26.pkl,868,868,1,868,0.0,0.9923147272727272,1.9977698,3.5902486
+9,MATR_b1c42,/home/JunseoPark/바탕화면/battery_gru/data/MATR/MATR_b1c42.pkl,700,700,1,700,2.0545013636363635e-06,0.986210909090909,1.9972272,3.5904136
+10,MATR_b4c24,/home/JunseoPark/바탕화면/battery_gru/data/MATR/MATR_b4c24.pkl,1115,1115,1,1115,2.4391432727272726e-06,0.953360909090909,1.9969468,3.5864635

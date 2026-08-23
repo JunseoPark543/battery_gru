@@ -1,0 +1,26 @@
+{
+  "created_at_utc": "2026-08-23T17:03:24.045707+00:00",
+  "dataset": "MATR",
+  "data_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/MATR",
+  "git_commit": "8b2c5de9567c0c3718a79d49fadb0e528455bd28",
+  "plot": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/matr_partial_iv_anp/data_voltage_cycles/random10_seed42/matr_10cells_all_cycle_voltage.png",
+  "selection_seed": 42,
+  "requested_random_count": 10,
+  "selected_cells": [
+    "MATR_b4c6",
+    "MATR_b4c0",
+    "MATR_b1c25",
+    "MATR_b3c30",
+    "MATR_b2c38",
+    "MATR_b4c44",
+    "MATR_b3c41",
+    "MATR_b1c26",
+    "MATR_b1c42",
+    "MATR_b4c24"
+  ],
+  "color_by": "normalized-life",
+  "q_min": null,
+  "q_max": null,
+  "max_points_per_curve": 256,
+  "invalid_file_count": 0
+}
