@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -31,6 +32,41 @@ class DifferenceCurve:
     q: np.ndarray
     delta_voltage_v: np.ndarray
     normalized_cycle_position: float
+
+
+def delta_voltage_axis_limits(summary: pd.DataFrame) -> tuple[float, float]:
+    """Return the shared y range used for one difference-curve figure."""
+    if summary.empty:
+        raise ValueError("cannot determine axis limits from an empty summary")
+    data_min = float(summary["delta_v_min"].min())
+    data_max = float(summary["delta_v_max"].max())
+    span = max(data_max - data_min, 1.0e-3)
+    margin = max(0.005, 0.05 * span)
+    return data_min - margin, data_max + margin
+
+
+def load_axis_reference(path: str | Path) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Read x/y limits from a prior run, including older manifests without y limits."""
+    source = Path(path)
+    directory = source if source.is_dir() else source.parent
+    manifest_path = directory / "plot_manifest.json"
+    summary_path = directory / "per_cycle_delta_voltage_summary.csv"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"axis-reference manifest not found: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    q_limits = float(manifest["q_min"]), float(manifest["q_max"])
+    saved = manifest.get("axis_limits", {})
+    if "delta_v_min" in saved and "delta_v_max" in saved:
+        voltage_limits = float(saved["delta_v_min"]), float(saved["delta_v_max"])
+    else:
+        if not summary_path.is_file():
+            raise FileNotFoundError(
+                f"older axis-reference needs its summary CSV: {summary_path}"
+            )
+        voltage_limits = delta_voltage_axis_limits(pd.read_csv(summary_path))
+    if q_limits[0] >= q_limits[1] or voltage_limits[0] >= voltage_limits[1]:
+        raise ValueError(f"invalid plot limits in axis reference: {directory}")
+    return q_limits, voltage_limits
 
 
 def _has_reference_and_future(cell: CellData, reference_cycle: int) -> bool:
@@ -127,6 +163,7 @@ def plot_reference_voltage_differences(
     *,
     dataset_name: str = "MATR",
     reference_cycle: int = 10,
+    delta_voltage_limits: tuple[float, float] | None = None,
     columns: int = 3,
     cmap: str = "viridis",
     line_width: float = 0.55,
@@ -142,7 +179,6 @@ def plot_reference_voltage_differences(
         raise ValueError("line width, alpha, and dpi must be positive")
 
     prepared: list[tuple[CellData, list[DifferenceCurve]]] = []
-    all_delta: list[np.ndarray] = []
     summary_rows: list[dict[str, float | int | str]] = []
     for cell in cells:
         curves = voltage_difference_curves(
@@ -150,7 +186,6 @@ def plot_reference_voltage_differences(
         )
         prepared.append((cell, curves))
         for curve in curves:
-            all_delta.append(curve.delta_voltage_v)
             summary_rows.append(
                 {
                     "cell_id": cell.cell_id,
@@ -168,10 +203,14 @@ def plot_reference_voltage_differences(
                 }
             )
 
-    global_min = float(min(np.min(values) for values in all_delta))
-    global_max = float(max(np.max(values) for values in all_delta))
-    span = max(global_max - global_min, 1.0e-3)
-    y_margin = max(0.005, 0.05 * span)
+    summary = pd.DataFrame(summary_rows)
+    y_limits = (
+        delta_voltage_axis_limits(summary)
+        if delta_voltage_limits is None
+        else tuple(map(float, delta_voltage_limits))
+    )
+    if y_limits[0] >= y_limits[1]:
+        raise ValueError("delta_voltage_limits must be increasing")
     rows_count = math.ceil(len(prepared) / columns)
     figure, axes = plt.subplots(
         rows_count,
@@ -202,7 +241,7 @@ def plot_reference_voltage_differences(
         axis.add_collection(collection)
         axis.axhline(0.0, color="black", lw=0.9, alpha=0.65)
         axis.set_xlim(processor.grid[0], processor.grid[-1])
-        axis.set_ylim(global_min - y_margin, global_max + y_margin)
+        axis.set_ylim(*y_limits)
         axis.set_title(
             f"{cell.cell_id}\n{len(curves):,} curves: "
             f"cycle {curves[0].cycle}–{curves[-1].cycle}",
@@ -231,7 +270,7 @@ def plot_reference_voltage_differences(
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output, dpi=dpi)
     plt.close(figure)
-    return pd.DataFrame(summary_rows)
+    return summary
 
 
 def parse_args(
@@ -250,6 +289,15 @@ def parse_args(
     parser.add_argument("--q-min", type=float, default=0.0)
     parser.add_argument("--q-max", type=float, default=1.0)
     parser.add_argument("--q-points", type=int, default=256)
+    parser.add_argument("--delta-v-min", type=float)
+    parser.add_argument("--delta-v-max", type=float)
+    parser.add_argument(
+        "--axis-reference",
+        help=(
+            "prior run directory whose q and delta-V axes must be reused; "
+            "for CALCE, point this to the corresponding MATR run"
+        ),
+    )
     parser.add_argument("--columns", type=int, default=3)
     parser.add_argument("--cmap", default="viridis")
     parser.add_argument("--line-width", type=float, default=0.55)
@@ -260,6 +308,8 @@ def parse_args(
 
 def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
     args = parse_args(default_config)
+    if (args.delta_v_min is None) != (args.delta_v_max is None):
+        raise ValueError("delta-v-min and delta-v-max must be supplied together")
     if args.q_min >= args.q_max or args.q_points < 2:
         raise ValueError("q range must increase and contain at least two points")
     config = load_config(args.config)
@@ -275,8 +325,18 @@ def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
         seed=args.seed,
         cell_ids=args.cell_ids,
     )
+    q_limits = (args.q_min, args.q_max)
+    delta_voltage_limits = (
+        None
+        if args.delta_v_min is None
+        else (args.delta_v_min, args.delta_v_max)
+    )
+    if args.axis_reference:
+        if delta_voltage_limits is not None:
+            raise ValueError("axis-reference cannot be combined with delta-v limits")
+        q_limits, delta_voltage_limits = load_axis_reference(args.axis_reference)
     processor = PartialIVProcessor(
-        QGridConfig(args.q_min, args.q_max, args.q_points), config.data
+        QGridConfig(q_limits[0], q_limits[1], args.q_points), config.data
     )
     destination = (
         Path(args.output_dir).resolve()
@@ -296,6 +356,7 @@ def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
         plot_path,
         dataset_name=dataset_name,
         reference_cycle=args.reference_cycle,
+        delta_voltage_limits=delta_voltage_limits,
         columns=args.columns,
         cmap=args.cmap,
         line_width=args.line_width,
@@ -303,6 +364,11 @@ def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
         dpi=args.dpi,
     )
     summary.to_csv(destination / "per_cycle_delta_voltage_summary.csv", index=False)
+    used_delta_limits = (
+        delta_voltage_axis_limits(summary)
+        if delta_voltage_limits is None
+        else delta_voltage_limits
+    )
     pd.DataFrame(
         {
             "plot_order": np.arange(1, len(selected) + 1),
@@ -323,9 +389,14 @@ def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
             "reference_cycle": args.reference_cycle,
             "selected_cells": [cell.cell_id for cell in selected],
             "seed": args.seed,
-            "q_min": args.q_min,
-            "q_max": args.q_max,
+            "q_min": q_limits[0],
+            "q_max": q_limits[1],
             "q_points": args.q_points,
+            "axis_reference": args.axis_reference,
+            "axis_limits": {
+                "delta_v_min": used_delta_limits[0],
+                "delta_v_max": used_delta_limits[1],
+            },
         },
     )
     print(f"Selected cells: {', '.join(cell.cell_id for cell in selected)}")

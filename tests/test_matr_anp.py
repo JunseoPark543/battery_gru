@@ -53,6 +53,8 @@ from battery_weighted_maml.matr_anp.plot_cycle_time_fraction_voltage import (
     time_fraction_prefix,
 )
 from battery_weighted_maml.matr_anp.plot_reference_cycle_voltage_difference import (
+    delta_voltage_axis_limits,
+    load_axis_reference,
     plot_reference_voltage_differences,
     select_reference_cells,
     voltage_difference_curves,
@@ -395,6 +397,16 @@ def test_reference_cycle_voltage_difference_grid(synthetic, tmp_path: Path) -> N
     assert destination.is_file()
     assert summary["cell_id"].nunique() == 5
     assert summary["cycle"].min() == 11
+    y_limits = delta_voltage_axis_limits(summary)
+    reference_dir = tmp_path / "axis_reference"
+    reference_dir.mkdir()
+    summary.to_csv(reference_dir / "per_cycle_delta_voltage_summary.csv", index=False)
+    (reference_dir / "plot_manifest.json").write_text(
+        '{"q_min": 0.0, "q_max": 1.0}', encoding="utf-8"
+    )
+    loaded_q, loaded_y = load_axis_reference(reference_dir)
+    assert loaded_q == (0.0, 1.0)
+    assert np.allclose(loaded_y, y_limits)
 
 
 def _small_model_config() -> ModelConfig:
