@@ -1,8 +1,8 @@
 {
-  "created_at_utc": "2026-08-24T11:52:01.107988+00:00",
+  "created_at_utc": "2026-08-24T11:56:47.703589+00:00",
   "dataset": "MATR",
   "data_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/MATR",
-  "git_commit": "43f978b800a2f2ecae7bb9d6bb801b6d7902c341",
+  "git_commit": "90e657925cc8cd1aac7013de252f89abe7027912",
   "cell_id": "MATR_b1c26",
   "reference_cycle": 10,
   "current_cycle": 769,
@@ -23,11 +23,20 @@
     0.07416639344647542
   ],
   "auto_delta_v_range": true,
-  "matched_plot": {
-    "current_cycle": 130,
-    "plot": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/matr_partial_iv_anp/data_realtime_voltage_difference/cycle769_from_cycle10_seed42/MATR_b1c26_cycle130_minus_cycle10_5snapshots_matched_to_cycle769.png",
-    "axis_source_cycle": 769
-  },
+  "matched_plots": [
+    {
+      "current_cycle": 130,
+      "current_cycle_from_end": null,
+      "plot": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/matr_partial_iv_anp/data_realtime_voltage_difference/cycle769_from_cycle10_seed42/MATR_b1c26_cycle130_minus_cycle10_5snapshots_matched_to_cycle769.png",
+      "axis_source_cycle": 769
+    },
+    {
+      "current_cycle": 819,
+      "current_cycle_from_end": 50,
+      "plot": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/matr_partial_iv_anp/data_realtime_voltage_difference/cycle769_from_cycle10_seed42/MATR_b1c26_cycle819_minus_cycle10_5snapshots_matched_to_cycle769.png",
+      "axis_source_cycle": 769
+    }
+  ],
   "future_curve_displayed": false,
   "snapshot_policy": "offline equal-duration replay",
   "plot": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/matr_partial_iv_anp/data_realtime_voltage_difference/cycle769_from_cycle10_seed42/MATR_b1c26_cycle769_minus_cycle10_5snapshots.png"
