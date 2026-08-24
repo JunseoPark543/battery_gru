@@ -1,0 +1,24 @@
+{
+  "created_at_utc": "2026-08-24T11:39:09.843364+00:00",
+  "dataset": "HUST",
+  "data_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/HUST",
+  "git_commit": "d4073a4bff1a2fafd6d1aacb2deb534b92374640",
+  "plot": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_partial_iv_analysis/data_cycle10_voltage_difference/random5_seed42/hust_5cells_cycle10_delta_voltage_q.png",
+  "reference_cycle": 10,
+  "selected_cells": [
+    "HUST_7-5",
+    "HUST_4-3",
+    "HUST_6-4",
+    "HUST_1-7",
+    "HUST_9-8"
+  ],
+  "seed": 42,
+  "q_min": 0.0,
+  "q_max": 1.0,
+  "q_points": 256,
+  "axis_reference": "outputs/matr_partial_iv_anp/data_cycle10_voltage_difference/random5_seed42",
+  "axis_limits": {
+    "delta_v_min": -1.1469516664997852,
+    "delta_v_max": 0.13720546624442223
+  }
+}
