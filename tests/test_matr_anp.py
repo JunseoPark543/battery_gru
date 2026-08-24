@@ -345,6 +345,7 @@ def test_cycle_time_fraction_voltage_q_plot(synthetic, tmp_path: Path) -> None:
         cycle_number=20,
         fractions=fractions,
         q_limits=(0.0, 0.8),
+        voltage_limits=(2.0, 3.8),
         dpi=80,
     )
     assert destination.is_file()

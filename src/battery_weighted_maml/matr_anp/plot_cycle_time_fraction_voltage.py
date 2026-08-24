@@ -186,6 +186,7 @@ def plot_time_fraction_voltage_q(
     cycle_number: int,
     fractions: Sequence[float],
     q_limits: tuple[float, float] | None = None,
+    voltage_limits: tuple[float, float] | None = None,
     show_full_curve: bool = False,
     dpi: int = 180,
 ) -> pd.DataFrame:
@@ -233,6 +234,10 @@ def plot_time_fraction_voltage_q(
             axis.set_xlim(*q_limits)
         else:
             axis.set_xlim(left=min(0.0, float(np.min(prefix.q))))
+        if voltage_limits is not None:
+            if voltage_limits[0] >= voltage_limits[1]:
+                raise ValueError("voltage_limits must be increasing")
+            axis.set_ylim(*voltage_limits)
         axis.grid(alpha=0.22)
         axis.legend(loc="best", fontsize=8)
         rows.append(
@@ -298,6 +303,20 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--num-snapshots", type=int, default=5)
     parser.add_argument(
+        "--q-min",
+        type=float,
+        default=0.0,
+        help="display-axis minimum in nominal-capacity coordinates",
+    )
+    parser.add_argument(
+        "--q-max",
+        type=float,
+        default=1.0,
+        help="display-axis maximum; independent of the model q-grid",
+    )
+    parser.add_argument("--voltage-min", type=float, default=2.0)
+    parser.add_argument("--voltage-max", type=float, default=3.7)
+    parser.add_argument(
         "--show-full-curve",
         action="store_true",
         help="show future/full data in gray for offline comparison",
@@ -333,7 +352,8 @@ def main() -> None:
         cell_id=cell.cell_id,
         cycle_number=args.cycle,
         fractions=fractions,
-        q_limits=(config.q_grid.minimum, config.q_grid.maximum),
+        q_limits=(args.q_min, args.q_max),
+        voltage_limits=(args.voltage_min, args.voltage_max),
         show_full_curve=args.show_full_curve,
         dpi=args.dpi,
     )
