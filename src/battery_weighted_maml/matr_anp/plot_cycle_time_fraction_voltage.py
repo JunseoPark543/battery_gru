@@ -282,15 +282,17 @@ def _select_cell(
             raise ValueError(f"{cell_id}: valid cycle {cycle_number} is unavailable")
         return candidates[0]
     if not candidates:
-        raise ValueError(f"no valid MATR cell contains cycle {cycle_number}")
+        raise ValueError(f"no valid cell contains cycle {cycle_number}")
     return candidates[int(np.random.default_rng(seed).integers(len(candidates)))]
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(
+    default_config: str = "configs/matr_partial_iv_anp.yaml",
+) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Plot voltage-Q observed at selected fractions of one cycle's time"
     )
-    parser.add_argument("--config", default="configs/matr_partial_iv_anp.yaml")
+    parser.add_argument("--config", default=default_config)
     parser.add_argument("--data-root")
     parser.add_argument("--output-dir")
     parser.add_argument("--cell-id", help="omit to select one eligible cell reproducibly")
@@ -326,11 +328,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
+def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
+    args = parse_args(default_config)
     config = load_config(args.config)
-    if config.data.dataset.upper() != "MATR":
-        raise ValueError("this plot requires a MATR configuration")
+    if config.data.dataset.upper() not in {"MATR", "CALCE"}:
+        raise ValueError("this plot requires a MATR or CALCE configuration")
     data_root = resolve_data_root(config, args.data_root)
     cells, _ = load_dataset(data_root, config.data, tolerate_invalid_cells=True)
     cell = _select_cell(cells, args.cycle, args.cell_id, args.seed)

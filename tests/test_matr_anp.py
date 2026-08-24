@@ -172,6 +172,9 @@ def test_calce_uses_the_same_cell_and_partial_iv_pipeline(tmp_path: Path) -> Non
     )
     assert episode.iv_feature.shape == (3, 32)
     assert episode.iv_feature[2].sum() > 0
+    timed_curve = load_timed_discharge(cells[-1], 20)
+    assert timed_curve.elapsed_time_s[-1] > 0.0
+    assert timed_curve.q[-1] > timed_curve.q[0]
 
 
 def test_interpolation_never_extrapolates_and_missing_reference_falls_back(synthetic) -> None:
