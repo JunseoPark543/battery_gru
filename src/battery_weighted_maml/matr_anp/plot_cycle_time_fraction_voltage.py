@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
@@ -170,6 +171,13 @@ def time_fraction_prefix(
     return TimedDischargeCurve(time_s, q, voltage)
 
 
+def evenly_spaced_time_fractions(count: int) -> list[float]:
+    """Return end points of equal, non-overlapping time sections."""
+    if count <= 0:
+        raise ValueError("snapshot count must be positive")
+    return [float(value) for value in np.linspace(1.0 / count, 1.0, count)]
+
+
 def plot_time_fraction_voltage_q(
     curve: TimedDischargeCurve,
     destination: str | Path,
@@ -177,33 +185,54 @@ def plot_time_fraction_voltage_q(
     cell_id: str,
     cycle_number: int,
     fractions: Sequence[float],
+    q_limits: tuple[float, float] | None = None,
+    show_full_curve: bool = False,
     dpi: int = 180,
 ) -> pd.DataFrame:
-    """Plot each observed time prefix in a separate, common-scale panel."""
+    """Plot successive online prefixes without displaying future observations."""
     values = sorted(dict.fromkeys(float(value) for value in fractions))
     if not values:
         raise ValueError("at least one time fraction is required")
     prefixes = [time_fraction_prefix(curve, value) for value in values]
+    columns = min(3, len(values))
+    rows_count = math.ceil(len(values) / columns)
     figure, axes = plt.subplots(
-        1,
-        len(values),
-        figsize=(5.0 * len(values), 4.4),
-        sharex=True,
-        sharey=True,
+        rows_count,
+        columns,
+        figsize=(5.0 * columns, 4.2 * rows_count),
+        sharex=False,
+        sharey=False,
         squeeze=False,
         layout="constrained",
     )
     colors = plt.get_cmap("viridis")(np.linspace(0.2, 0.85, len(values)))
     rows: list[dict[str, float | int | str]] = []
-    for axis, fraction, prefix, color in zip(axes[0], values, prefixes, colors):
-        axis.plot(curve.q, curve.voltage_v, color="0.78", lw=1.2, label="unobserved/full")
-        axis.plot(prefix.q, prefix.voltage_v, color=color, lw=2.3, label="observed")
+    flat_axes = axes.ravel()
+    for axis, fraction, prefix, color in zip(flat_axes, values, prefixes, colors):
+        if show_full_curve:
+            axis.plot(
+                curve.q,
+                curve.voltage_v,
+                color="0.78",
+                lw=1.2,
+                label="future/full (reference)",
+            )
+        axis.plot(prefix.q, prefix.voltage_v, color=color, lw=2.3, label="received so far")
         axis.scatter(prefix.q[-1], prefix.voltage_v[-1], color=color, s=35, zorder=3)
         axis.axvline(prefix.q[-1], color=color, ls="--", lw=0.9, alpha=0.65)
         axis.set_title(
-            f"t/T = {fraction:.2f}\nq reached = {prefix.q[-1]:.3f}", fontsize=11
+            f"t/T = {fraction:.2f}  ({prefix.elapsed_time_s[-1] / 60.0:.1f} min)\n"
+            f"q reached = {prefix.q[-1]:.3f}",
+            fontsize=11,
         )
         axis.set_xlabel("Normalized discharged capacity q = Qd / Qnom")
+        axis.set_ylabel("Voltage (V)")
+        if q_limits is not None:
+            if q_limits[0] >= q_limits[1]:
+                raise ValueError("q_limits must be increasing")
+            axis.set_xlim(*q_limits)
+        else:
+            axis.set_xlim(left=min(0.0, float(np.min(prefix.q))))
         axis.grid(alpha=0.22)
         axis.legend(loc="best", fontsize=8)
         rows.append(
@@ -218,9 +247,10 @@ def plot_time_fraction_voltage_q(
                 "observed_points": len(prefix.q),
             }
         )
-    axes[0, 0].set_ylabel("Voltage (V)")
+    for axis in flat_axes[len(values) :]:
+        axis.set_visible(False)
     figure.suptitle(
-        f"{cell_id} · cycle {cycle_number}: voltage–Q at partial discharge times",
+        f"{cell_id} · cycle {cycle_number}: online voltage–Q replay",
         fontsize=14,
     )
     output = Path(destination)
@@ -260,7 +290,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir")
     parser.add_argument("--cell-id", help="omit to select one eligible cell reproducibly")
     parser.add_argument("--cycle", type=int, default=130)
-    parser.add_argument("--time-fractions", type=float, nargs="+", default=[0.3, 0.5, 0.7])
+    parser.add_argument(
+        "--time-fractions",
+        type=float,
+        nargs="+",
+        help="explicit t/T snapshots; omit to divide the duration equally",
+    )
+    parser.add_argument("--num-snapshots", type=int, default=5)
+    parser.add_argument(
+        "--show-full-curve",
+        action="store_true",
+        help="show future/full data in gray for offline comparison",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--dpi", type=int, default=180)
     return parser.parse_args()
@@ -275,18 +316,25 @@ def main() -> None:
     cells, _ = load_dataset(data_root, config.data, tolerate_invalid_cells=True)
     cell = _select_cell(cells, args.cycle, args.cell_id, args.seed)
     curve = load_timed_discharge(cell, args.cycle)
+    fractions = (
+        args.time_fractions
+        if args.time_fractions is not None
+        else evenly_spaced_time_fractions(args.num_snapshots)
+    )
     output_dir = (
         Path(args.output_dir).resolve()
         if args.output_dir
         else Path(config.paths.output_root).resolve() / "data_cycle_time_fraction"
     )
-    stem = f"{cell.cell_id}_cycle{args.cycle}_voltage_q_time_fraction"
+    stem = f"{cell.cell_id}_cycle{args.cycle}_voltage_q_{len(fractions)}snapshots"
     summary = plot_time_fraction_voltage_q(
         curve,
         output_dir / f"{stem}.png",
         cell_id=cell.cell_id,
         cycle_number=args.cycle,
-        fractions=args.time_fractions,
+        fractions=fractions,
+        q_limits=(config.q_grid.minimum, config.q_grid.maximum),
+        show_full_curve=args.show_full_curve,
         dpi=args.dpi,
     )
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -47,6 +47,7 @@ from battery_weighted_maml.matr_anp.plot_voltage_cycles import (
     select_cells,
 )
 from battery_weighted_maml.matr_anp.plot_cycle_time_fraction_voltage import (
+    evenly_spaced_time_fractions,
     load_timed_discharge,
     plot_time_fraction_voltage_q,
     time_fraction_prefix,
@@ -333,6 +334,8 @@ def test_cycle_time_fraction_voltage_q_plot(synthetic, tmp_path: Path) -> None:
     prefix = time_fraction_prefix(curve, 0.3)
     assert np.isclose(prefix.elapsed_time_s[-1], 0.3 * curve.elapsed_time_s[-1])
     assert prefix.q[-1] < curve.q[-1]
+    fractions = evenly_spaced_time_fractions(5)
+    assert np.allclose(fractions, [0.2, 0.4, 0.6, 0.8, 1.0])
 
     destination = tmp_path / "cycle20_voltage_q_time_fraction.png"
     summary = plot_time_fraction_voltage_q(
@@ -340,11 +343,12 @@ def test_cycle_time_fraction_voltage_q_plot(synthetic, tmp_path: Path) -> None:
         destination,
         cell_id=cells[0].cell_id,
         cycle_number=20,
-        fractions=[0.3, 0.5, 0.7],
+        fractions=fractions,
+        q_limits=(0.0, 0.8),
         dpi=80,
     )
     assert destination.is_file()
-    assert summary["time_fraction"].tolist() == [0.3, 0.5, 0.7]
+    assert np.allclose(summary["time_fraction"], fractions)
     assert summary["cutoff_q"].is_monotonic_increasing
 
 
