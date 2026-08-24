@@ -59,6 +59,11 @@ from battery_weighted_maml.matr_anp.plot_reference_cycle_voltage_difference impo
     select_reference_cells,
     voltage_difference_curves,
 )
+from battery_weighted_maml.matr_anp.plot_realtime_cycle_voltage_difference import (
+    build_timed_voltage_difference,
+    plot_realtime_voltage_difference,
+    select_realtime_difference_cell,
+)
 from battery_weighted_maml.matr_anp.runtime import parameter_checksum
 from battery_weighted_maml.matr_anp.smoke_test import run_smoke
 from battery_weighted_maml.matr_anp.splits import make_splits
@@ -446,6 +451,41 @@ def test_reference_cycle_voltage_difference_grid(synthetic, tmp_path: Path) -> N
     loaded_q, loaded_y = load_axis_reference(reference_dir)
     assert loaded_q == (0.0, 1.0)
     assert np.allclose(loaded_y, y_limits)
+
+
+def test_realtime_current_cycle_difference_from_cycle10(
+    synthetic, tmp_path: Path
+) -> None:
+    _, cells, _, _, _, _ = synthetic
+    cell = select_realtime_difference_cell(
+        cells,
+        reference_cycle=10,
+        current_cycle=20,
+        seed=42,
+    )
+    curve = build_timed_voltage_difference(
+        cell, reference_cycle=10, current_cycle=20
+    )
+    valid = np.isfinite(curve.voltage_v)
+    assert np.count_nonzero(valid) > 2
+    assert np.median(curve.voltage_v[valid]) == pytest.approx(-0.018, abs=8.0e-4)
+
+    destination = tmp_path / "cycle20_minus_cycle10_realtime.png"
+    fractions = evenly_spaced_time_fractions(5)
+    summary = plot_realtime_voltage_difference(
+        curve,
+        destination,
+        cell_id=cell.cell_id,
+        reference_cycle=10,
+        current_cycle=20,
+        fractions=fractions,
+        q_limits=(0.0, 1.0),
+        delta_voltage_limits=(-0.05, 0.01),
+        dpi=80,
+    )
+    assert destination.is_file()
+    assert np.allclose(summary["time_fraction"], fractions)
+    assert summary["q_received"].is_monotonic_increasing
 
 
 def _small_model_config() -> ModelConfig:
