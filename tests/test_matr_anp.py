@@ -46,6 +46,11 @@ from battery_weighted_maml.matr_anp.plot_voltage_cycles import (
     plot_voltage_grid,
     select_cells,
 )
+from battery_weighted_maml.matr_anp.plot_cycle_time_fraction_voltage import (
+    load_timed_discharge,
+    plot_time_fraction_voltage_q,
+    time_fraction_prefix,
+)
 from battery_weighted_maml.matr_anp.runtime import parameter_checksum
 from battery_weighted_maml.matr_anp.smoke_test import run_smoke
 from battery_weighted_maml.matr_anp.splits import make_splits
@@ -320,6 +325,27 @@ def test_random_cell_all_cycle_voltage_grid(synthetic, tmp_path: Path) -> None:
     assert destination.is_file()
     assert len(summary) == 4
     assert summary["plotted_cycles"].gt(0).all()
+
+
+def test_cycle_time_fraction_voltage_q_plot(synthetic, tmp_path: Path) -> None:
+    _, cells, _, _, _, _ = synthetic
+    curve = load_timed_discharge(cells[0], 20)
+    prefix = time_fraction_prefix(curve, 0.3)
+    assert np.isclose(prefix.elapsed_time_s[-1], 0.3 * curve.elapsed_time_s[-1])
+    assert prefix.q[-1] < curve.q[-1]
+
+    destination = tmp_path / "cycle20_voltage_q_time_fraction.png"
+    summary = plot_time_fraction_voltage_q(
+        curve,
+        destination,
+        cell_id=cells[0].cell_id,
+        cycle_number=20,
+        fractions=[0.3, 0.5, 0.7],
+        dpi=80,
+    )
+    assert destination.is_file()
+    assert summary["time_fraction"].tolist() == [0.3, 0.5, 0.7]
+    assert summary["cutoff_q"].is_monotonic_increasing
 
 
 def _small_model_config() -> ModelConfig:
