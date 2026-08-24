@@ -125,6 +125,7 @@ def plot_reference_voltage_differences(
     processor: PartialIVProcessor,
     destination: str | Path,
     *,
+    dataset_name: str = "MATR",
     reference_cycle: int = 10,
     columns: int = 3,
     cmap: str = "viridis",
@@ -223,7 +224,8 @@ def plot_reference_voltage_differences(
     )
     colorbar.set_label(f"Normalized cycle position after cycle {reference_cycle}")
     figure.suptitle(
-        f"MATR voltage–Q change relative to cycle {reference_cycle}", fontsize=15
+        f"{dataset_name.upper()} voltage–Q change relative to cycle {reference_cycle}",
+        fontsize=15,
     )
     output = Path(destination)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -232,11 +234,13 @@ def plot_reference_voltage_differences(
     return pd.DataFrame(summary_rows)
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(
+    default_config: str = "configs/matr_partial_iv_anp.yaml",
+) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Plot MATR voltage-Q differences from cycle 10 for five cells"
+        description="Plot voltage-Q differences from cycle 10 for five cells"
     )
-    parser.add_argument("--config", default="configs/matr_partial_iv_anp.yaml")
+    parser.add_argument("--config", default=default_config)
     parser.add_argument("--data-root")
     parser.add_argument("--output-dir")
     parser.add_argument("--num-cells", type=int, default=5)
@@ -254,13 +258,14 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
+def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
+    args = parse_args(default_config)
     if args.q_min >= args.q_max or args.q_points < 2:
         raise ValueError("q range must increase and contain at least two points")
     config = load_config(args.config)
-    if config.data.dataset.upper() != "MATR":
-        raise ValueError("this analysis requires a MATR configuration")
+    dataset_name = config.data.dataset.upper()
+    if dataset_name not in {"MATR", "CALCE"}:
+        raise ValueError("this analysis requires a MATR or CALCE configuration")
     data_root = resolve_data_root(config, args.data_root)
     cells, audit = load_dataset(data_root, config.data, tolerate_invalid_cells=True)
     selected = select_reference_cells(
@@ -282,12 +287,14 @@ def main() -> None:
     )
     destination.mkdir(parents=True, exist_ok=True)
     plot_path = destination / (
-        f"matr_{len(selected)}cells_cycle{args.reference_cycle}_delta_voltage_q.png"
+        f"{dataset_name.lower()}_{len(selected)}cells_cycle"
+        f"{args.reference_cycle}_delta_voltage_q.png"
     )
     summary = plot_reference_voltage_differences(
         selected,
         processor,
         plot_path,
+        dataset_name=dataset_name,
         reference_cycle=args.reference_cycle,
         columns=args.columns,
         cmap=args.cmap,
@@ -309,7 +316,7 @@ def main() -> None:
         destination / "plot_manifest.json",
         {
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
-            "dataset": "MATR",
+            "dataset": dataset_name,
             "data_root": str(data_root),
             "git_commit": git_commit(),
             "plot": str(plot_path),

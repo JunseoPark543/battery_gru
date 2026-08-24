@@ -180,6 +180,11 @@ def test_calce_uses_the_same_cell_and_partial_iv_pipeline(tmp_path: Path) -> Non
     timed_curve = load_timed_discharge(cells[-1], 20)
     assert timed_curve.elapsed_time_s[-1] > 0.0
     assert timed_curve.q[-1] > timed_curve.q[0]
+    difference_curves = voltage_difference_curves(
+        cells[-1], processor, reference_cycle=10
+    )
+    assert difference_curves[0].cycle == 11
+    assert difference_curves[-1].cycle == 28
 
 
 def test_interpolation_never_extrapolates_and_missing_reference_falls_back(synthetic) -> None:
