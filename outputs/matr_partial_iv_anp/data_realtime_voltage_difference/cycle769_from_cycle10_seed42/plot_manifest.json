@@ -1,0 +1,28 @@
+{
+  "created_at_utc": "2026-08-24T11:47:37.410003+00:00",
+  "dataset": "MATR",
+  "data_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/MATR",
+  "git_commit": "751b42a258fb35e39c20bd936a5efb98a6c69a58",
+  "cell_id": "MATR_b1c26",
+  "reference_cycle": 10,
+  "current_cycle": 769,
+  "current_cycle_from_end": 100,
+  "time_fractions": [
+    0.2,
+    0.4,
+    0.6000000000000001,
+    0.8,
+    1.0
+  ],
+  "q_limits": [
+    0.0,
+    1.0
+  ],
+  "delta_voltage_limits": [
+    -0.5,
+    0.1
+  ],
+  "future_curve_displayed": false,
+  "snapshot_policy": "offline equal-duration replay",
+  "plot": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/matr_partial_iv_anp/data_realtime_voltage_difference/cycle769_from_cycle10_seed42/MATR_b1c26_cycle769_minus_cycle10_5snapshots.png"
+}
