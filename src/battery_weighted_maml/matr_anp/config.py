@@ -110,8 +110,8 @@ class ExperimentConfig:
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
 
     def validate(self) -> None:
-        if self.data.dataset.upper() not in {"MATR", "CALCE"}:
-            raise ValueError("data.dataset must be MATR or CALCE")
+        if self.data.dataset.upper() not in {"MATR", "CALCE", "HUST"}:
+            raise ValueError("data.dataset must be MATR, CALCE, or HUST")
         if not self.data.file_globs:
             raise ValueError("data.file_globs cannot be empty")
         if self.data.minimum_valid_cycles < 3:

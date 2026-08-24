@@ -189,6 +189,45 @@ def test_calce_uses_the_same_cell_and_partial_iv_pipeline(tmp_path: Path) -> Non
     assert difference_curves[-1].cycle == 28
 
 
+def test_hust_uses_shared_voltage_q_difference_pipeline(tmp_path: Path) -> None:
+    matr_root = write_synthetic_matr_dataset(
+        tmp_path, num_cells=5, num_cycles=28, signal_points=32
+    )
+    hust_root = tmp_path / "HUST"
+    hust_root.mkdir()
+    for index, source in enumerate(sorted(matr_root.glob("*.pkl"))):
+        with source.open("rb") as handle:
+            payload = pickle.load(handle)
+        payload["dataset"] = "HUST"
+        payload["cell_id"] = f"HUST_{index + 1}-1"
+        destination = hust_root / f"HUST_{index + 1}-1.pkl"
+        with destination.open("wb") as handle:
+            pickle.dump(payload, handle)
+
+    data_config = DataConfig(
+        dataset="HUST",
+        minimum_valid_cycles=24,
+        minimum_discharge_points=8,
+        short_signal_threshold=12,
+    )
+    config = ExperimentConfig(data=data_config)
+    config.validate()
+    cells, audit = load_dataset(hust_root, data_config)
+    assert len(cells) == 5
+    assert (audit["status"] == "valid").all()
+    processor = PartialIVProcessor(
+        QGridConfig(minimum=0.0, maximum=1.0, num_points=32), data_config
+    )
+    selected = select_reference_cells(
+        cells, count=5, reference_cycle=10, seed=42
+    )
+    curves = voltage_difference_curves(
+        selected[0], processor, reference_cycle=10
+    )
+    assert curves[0].cycle == 11
+    assert curves[-1].cycle == 28
+
+
 def test_interpolation_never_extrapolates_and_missing_reference_falls_back(synthetic) -> None:
     _, cells, _, _, scalers, _ = synthetic
     processor = PartialIVProcessor(

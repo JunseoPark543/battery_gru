@@ -295,7 +295,7 @@ def parse_args(
         "--axis-reference",
         help=(
             "prior run directory whose q and delta-V axes must be reused; "
-            "for CALCE, point this to the corresponding MATR run"
+            "point this to the comparison dataset run"
         ),
     )
     parser.add_argument("--columns", type=int, default=3)
@@ -314,8 +314,8 @@ def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
         raise ValueError("q range must increase and contain at least two points")
     config = load_config(args.config)
     dataset_name = config.data.dataset.upper()
-    if dataset_name not in {"MATR", "CALCE"}:
-        raise ValueError("this analysis requires a MATR or CALCE configuration")
+    if dataset_name not in {"MATR", "CALCE", "HUST"}:
+        raise ValueError("this analysis requires a MATR, CALCE, or HUST configuration")
     data_root = resolve_data_root(config, args.data_root)
     cells, audit = load_dataset(data_root, config.data, tolerate_invalid_cells=True)
     selected = select_reference_cells(

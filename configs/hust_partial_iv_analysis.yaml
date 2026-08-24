@@ -1,0 +1,20 @@
+seed: 42
+device: auto
+
+paths:
+  data_root: data/HUST
+  output_root: outputs/hust_partial_iv_analysis
+
+data:
+  dataset: HUST
+  file_globs: ["**/*.pkl"]
+  minimum_valid_cycles: 30
+  minimum_discharge_points: 16
+  short_signal_threshold: 32
+  reference_cycles: [5, 6, 7, 8, 9, 10]
+  minimum_reference_cycles: 3
+
+q_grid:
+  minimum: 0.0
+  maximum: 0.8
+  num_points: 256

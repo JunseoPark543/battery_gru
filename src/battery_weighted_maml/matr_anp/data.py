@@ -250,7 +250,7 @@ def _dataset_marker(root: Mapping[str, Any], path: Path) -> str | None:
         if key in root:
             return str(root[key])
     candidates = [str(root.get("cell_id", "")), path.stem, *map(str, path.parts)]
-    for dataset in ("MATR", "CALCE"):
+    for dataset in ("MATR", "CALCE", "HUST"):
         if any(dataset.lower() in candidate.lower() for candidate in candidates):
             return dataset
     return None
