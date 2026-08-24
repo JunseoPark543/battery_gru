@@ -60,6 +60,46 @@ def select_realtime_difference_cell(
     return candidates[int(np.random.default_rng(seed).integers(len(candidates)))]
 
 
+def select_realtime_difference_cell_from_end(
+    cells: Sequence[CellData],
+    *,
+    reference_cycle: int,
+    rank_from_end: int,
+    seed: int,
+    cell_id: str | None = None,
+) -> tuple[CellData, int]:
+    """Choose a cell and its Nth valid discharge cycle counted from the end."""
+    if rank_from_end <= 0:
+        raise ValueError("rank_from_end must be positive")
+    candidates: list[tuple[CellData, int]] = []
+    for cell in cells:
+        valid_cycles = sorted(
+            cycle.cycle_number
+            for cycle in cell.cycles
+            if cycle.discharge is not None
+        )
+        if len(valid_cycles) < rank_from_end:
+            continue
+        current_cycle = valid_cycles[-rank_from_end]
+        if current_cycle <= reference_cycle or reference_cycle not in valid_cycles:
+            continue
+        candidates.append((cell, current_cycle))
+    if cell_id is not None:
+        matches = [item for item in candidates if item[0].cell_id == cell_id]
+        if not matches:
+            raise ValueError(
+                f"{cell_id}: cannot select the {rank_from_end}th valid cycle "
+                f"from the end after reference cycle {reference_cycle}"
+            )
+        return matches[0]
+    if not candidates:
+        raise ValueError(
+            f"no cell has a valid {rank_from_end}th discharge cycle from the end "
+            f"after reference cycle {reference_cycle}"
+        )
+    return candidates[int(np.random.default_rng(seed).integers(len(candidates)))]
+
+
 def build_timed_voltage_difference(
     cell: CellData,
     *,
@@ -192,7 +232,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir")
     parser.add_argument("--cell-id")
     parser.add_argument("--reference-cycle", type=int, default=10)
-    parser.add_argument("--current-cycle", type=int, default=130)
+    current = parser.add_mutually_exclusive_group()
+    current.add_argument("--current-cycle", type=int)
+    current.add_argument(
+        "--current-cycle-from-end",
+        type=int,
+        help="1 selects the last valid discharge cycle; 100 selects the 100th from end",
+    )
     parser.add_argument("--num-snapshots", type=int, default=5)
     parser.add_argument("--time-fractions", type=float, nargs="+")
     parser.add_argument("--q-min", type=float, default=0.0)
@@ -211,17 +257,27 @@ def main() -> None:
         raise ValueError("this online replay requires a MATR configuration")
     data_root = resolve_data_root(config, args.data_root)
     cells, audit = load_dataset(data_root, config.data, tolerate_invalid_cells=True)
-    cell = select_realtime_difference_cell(
-        cells,
-        reference_cycle=args.reference_cycle,
-        current_cycle=args.current_cycle,
-        seed=args.seed,
-        cell_id=args.cell_id,
-    )
+    if args.current_cycle_from_end is not None:
+        cell, current_cycle = select_realtime_difference_cell_from_end(
+            cells,
+            reference_cycle=args.reference_cycle,
+            rank_from_end=args.current_cycle_from_end,
+            seed=args.seed,
+            cell_id=args.cell_id,
+        )
+    else:
+        current_cycle = 130 if args.current_cycle is None else args.current_cycle
+        cell = select_realtime_difference_cell(
+            cells,
+            reference_cycle=args.reference_cycle,
+            current_cycle=current_cycle,
+            seed=args.seed,
+            cell_id=args.cell_id,
+        )
     curve = build_timed_voltage_difference(
         cell,
         reference_cycle=args.reference_cycle,
-        current_cycle=args.current_cycle,
+        current_cycle=current_cycle,
     )
     fractions = (
         args.time_fractions
@@ -233,11 +289,11 @@ def main() -> None:
         if args.output_dir
         else Path(config.paths.output_root).resolve()
         / "data_realtime_voltage_difference"
-        / f"cycle{args.current_cycle}_from_cycle{args.reference_cycle}_seed{args.seed}"
+        / f"cycle{current_cycle}_from_cycle{args.reference_cycle}_seed{args.seed}"
     )
     destination.mkdir(parents=True, exist_ok=True)
     stem = (
-        f"{cell.cell_id}_cycle{args.current_cycle}_minus_cycle"
+        f"{cell.cell_id}_cycle{current_cycle}_minus_cycle"
         f"{args.reference_cycle}_{len(fractions)}snapshots"
     )
     plot_path = destination / f"{stem}.png"
@@ -246,7 +302,7 @@ def main() -> None:
         plot_path,
         cell_id=cell.cell_id,
         reference_cycle=args.reference_cycle,
-        current_cycle=args.current_cycle,
+        current_cycle=current_cycle,
         fractions=fractions,
         q_limits=(args.q_min, args.q_max),
         delta_voltage_limits=(args.delta_v_min, args.delta_v_max),
@@ -264,7 +320,8 @@ def main() -> None:
             "git_commit": git_commit(),
             "cell_id": cell.cell_id,
             "reference_cycle": args.reference_cycle,
-            "current_cycle": args.current_cycle,
+            "current_cycle": current_cycle,
+            "current_cycle_from_end": args.current_cycle_from_end,
             "time_fractions": fractions,
             "q_limits": [args.q_min, args.q_max],
             "delta_voltage_limits": [args.delta_v_min, args.delta_v_max],

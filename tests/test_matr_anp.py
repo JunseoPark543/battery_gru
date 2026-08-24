@@ -63,6 +63,7 @@ from battery_weighted_maml.matr_anp.plot_realtime_cycle_voltage_difference impor
     build_timed_voltage_difference,
     plot_realtime_voltage_difference,
     select_realtime_difference_cell,
+    select_realtime_difference_cell_from_end,
 )
 from battery_weighted_maml.matr_anp.runtime import parameter_checksum
 from battery_weighted_maml.matr_anp.smoke_test import run_smoke
@@ -486,6 +487,15 @@ def test_realtime_current_cycle_difference_from_cycle10(
     assert destination.is_file()
     assert np.allclose(summary["time_fraction"], fractions)
     assert summary["q_received"].is_monotonic_increasing
+    ranked_cell, ranked_cycle = select_realtime_difference_cell_from_end(
+        cells,
+        reference_cycle=10,
+        rank_from_end=9,
+        seed=42,
+        cell_id=cell.cell_id,
+    )
+    assert ranked_cell.cell_id == cell.cell_id
+    assert ranked_cycle == 20
 
 
 def _small_model_config() -> ModelConfig:
