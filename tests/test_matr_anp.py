@@ -65,6 +65,7 @@ from battery_weighted_maml.matr_anp.plot_realtime_cycle_voltage_difference impor
     plot_realtime_voltage_difference,
     select_realtime_difference_cell,
     select_realtime_difference_cell_from_end,
+    valid_discharge_cycle_from_end,
 )
 from battery_weighted_maml.matr_anp.runtime import parameter_checksum
 from battery_weighted_maml.matr_anp.smoke_test import run_smoke
@@ -517,6 +518,7 @@ def test_realtime_current_cycle_difference_from_cycle10(
     )
     assert ranked_cell.cell_id == cell.cell_id
     assert ranked_cycle == 20
+    assert valid_discharge_cycle_from_end(cell, 5) == 24
 
 
 def _small_model_config() -> ModelConfig:

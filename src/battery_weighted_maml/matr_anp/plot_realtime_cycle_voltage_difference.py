@@ -73,14 +73,15 @@ def select_realtime_difference_cell_from_end(
         raise ValueError("rank_from_end must be positive")
     candidates: list[tuple[CellData, int]] = []
     for cell in cells:
-        valid_cycles = sorted(
+        try:
+            current_cycle = valid_discharge_cycle_from_end(cell, rank_from_end)
+        except ValueError:
+            continue
+        valid_cycles = {
             cycle.cycle_number
             for cycle in cell.cycles
             if cycle.discharge is not None
-        )
-        if len(valid_cycles) < rank_from_end:
-            continue
-        current_cycle = valid_cycles[-rank_from_end]
+        }
         if current_cycle <= reference_cycle or reference_cycle not in valid_cycles:
             continue
         candidates.append((cell, current_cycle))
@@ -98,6 +99,23 @@ def select_realtime_difference_cell_from_end(
             f"after reference cycle {reference_cycle}"
         )
     return candidates[int(np.random.default_rng(seed).integers(len(candidates)))]
+
+
+def valid_discharge_cycle_from_end(cell: CellData, rank_from_end: int) -> int:
+    """Resolve an inclusive rank where 1 means the last valid discharge cycle."""
+    if rank_from_end <= 0:
+        raise ValueError("rank_from_end must be positive")
+    valid_cycles = sorted(
+        cycle.cycle_number
+        for cycle in cell.cycles
+        if cycle.discharge is not None
+    )
+    if len(valid_cycles) < rank_from_end:
+        raise ValueError(
+            f"{cell.cell_id}: only {len(valid_cycles)} valid discharge cycles; "
+            f"cannot select rank {rank_from_end} from end"
+        )
+    return valid_cycles[-rank_from_end]
 
 
 def build_timed_voltage_difference(
@@ -268,7 +286,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--matched-cycle",
         type=int,
-        help="also plot this cycle with the primary cycle's identical q/delta-V axes",
+        nargs="+",
+        help="also plot these cycles with the primary cycle's identical axes",
+    )
+    parser.add_argument(
+        "--matched-cycle-from-end",
+        type=int,
+        nargs="+",
+        help="also plot inclusive valid-cycle ranks counted from the selected cell's end",
     )
     parser.add_argument("--num-snapshots", type=int, default=5)
     parser.add_argument("--time-fractions", type=float, nargs="+")
@@ -351,18 +376,36 @@ def main() -> None:
         dpi=args.dpi,
     )
     summary.to_csv(destination / f"{stem}.csv", index=False)
-    matched_payload: dict[str, object] | None = None
-    matched_plot_path: Path | None = None
-    if args.matched_cycle is not None:
-        if args.matched_cycle == current_cycle:
-            raise ValueError("matched-cycle must differ from the primary current cycle")
+    matched_specs: list[tuple[int, int | None]] = [
+        (int(cycle), None) for cycle in (args.matched_cycle or [])
+    ]
+    matched_specs.extend(
+        (
+            valid_discharge_cycle_from_end(cell, int(rank)),
+            int(rank),
+        )
+        for rank in (args.matched_cycle_from_end or [])
+    )
+    unique_matched_specs: list[tuple[int, int | None]] = []
+    seen_matched_cycles: set[int] = set()
+    for matched_cycle, rank_from_end in matched_specs:
+        if matched_cycle == current_cycle:
+            raise ValueError("matched cycles must differ from the primary current cycle")
+        if matched_cycle in seen_matched_cycles:
+            continue
+        seen_matched_cycles.add(matched_cycle)
+        unique_matched_specs.append((matched_cycle, rank_from_end))
+
+    matched_payloads: list[dict[str, object]] = []
+    matched_plot_paths: list[Path] = []
+    for matched_cycle, rank_from_end in unique_matched_specs:
         matched_curve = build_timed_voltage_difference(
             cell,
             reference_cycle=args.reference_cycle,
-            current_cycle=args.matched_cycle,
+            current_cycle=matched_cycle,
         )
         matched_stem = (
-            f"{cell.cell_id}_cycle{args.matched_cycle}_minus_cycle"
+            f"{cell.cell_id}_cycle{matched_cycle}_minus_cycle"
             f"{args.reference_cycle}_{len(fractions)}snapshots_matched_to_cycle"
             f"{current_cycle}"
         )
@@ -372,18 +415,22 @@ def main() -> None:
             matched_plot_path,
             cell_id=cell.cell_id,
             reference_cycle=args.reference_cycle,
-            current_cycle=args.matched_cycle,
+            current_cycle=matched_cycle,
             fractions=fractions,
             q_limits=q_limits,
             delta_voltage_limits=delta_voltage_limits,
             dpi=args.dpi,
         )
         matched_summary.to_csv(destination / f"{matched_stem}.csv", index=False)
-        matched_payload = {
-            "current_cycle": args.matched_cycle,
-            "plot": str(matched_plot_path),
-            "axis_source_cycle": current_cycle,
-        }
+        matched_payloads.append(
+            {
+                "current_cycle": matched_cycle,
+                "current_cycle_from_end": rank_from_end,
+                "plot": str(matched_plot_path),
+                "axis_source_cycle": current_cycle,
+            }
+        )
+        matched_plot_paths.append(matched_plot_path)
     audit.to_csv(destination / "data_audit.csv", index=False)
     save_config(config, destination / "resolved_config.yaml")
     write_json(
@@ -401,7 +448,7 @@ def main() -> None:
             "q_limits": list(q_limits),
             "delta_voltage_limits": list(delta_voltage_limits),
             "auto_delta_v_range": args.auto_delta_v_range,
-            "matched_plot": matched_payload,
+            "matched_plots": matched_payloads,
             "future_curve_displayed": False,
             "snapshot_policy": "offline equal-duration replay",
             "plot": str(plot_path),
@@ -411,8 +458,13 @@ def main() -> None:
     print(f"Primary cycle: {current_cycle}")
     print(f"Shared delta-V limits: {delta_voltage_limits}")
     print(f"Plot: {plot_path.resolve()}")
-    if matched_plot_path is not None:
-        print(f"Matched plot: {matched_plot_path.resolve()}")
+    for payload, matched_plot_path in zip(matched_payloads, matched_plot_paths):
+        rank = payload["current_cycle_from_end"]
+        suffix = "" if rank is None else f" ({rank}th valid cycle from end)"
+        print(
+            f"Matched cycle: {payload['current_cycle']}{suffix}; "
+            f"plot: {matched_plot_path.resolve()}"
+        )
 
 
 if __name__ == "__main__":
