@@ -61,6 +61,7 @@ from battery_weighted_maml.matr_anp.plot_reference_cycle_voltage_difference impo
 )
 from battery_weighted_maml.matr_anp.plot_realtime_cycle_voltage_difference import (
     build_timed_voltage_difference,
+    delta_voltage_limits_from_curve,
     plot_realtime_voltage_difference,
     select_realtime_difference_cell,
     select_realtime_difference_cell_from_end,
@@ -487,6 +488,26 @@ def test_realtime_current_cycle_difference_from_cycle10(
     assert destination.is_file()
     assert np.allclose(summary["time_fraction"], fractions)
     assert summary["q_received"].is_monotonic_increasing
+    auto_limits = delta_voltage_limits_from_curve(curve, (0.0, 1.0))
+    finite_delta = curve.voltage_v[np.isfinite(curve.voltage_v)]
+    assert auto_limits[0] < float(np.min(finite_delta))
+    assert auto_limits[1] > 0.0
+    matched_curve = build_timed_voltage_difference(
+        cell, reference_cycle=10, current_cycle=15
+    )
+    matched_destination = tmp_path / "cycle15_matched_to_cycle20.png"
+    plot_realtime_voltage_difference(
+        matched_curve,
+        matched_destination,
+        cell_id=cell.cell_id,
+        reference_cycle=10,
+        current_cycle=15,
+        fractions=fractions,
+        q_limits=(0.0, 1.0),
+        delta_voltage_limits=auto_limits,
+        dpi=80,
+    )
+    assert matched_destination.is_file()
     ranked_cell, ranked_cycle = select_realtime_difference_cell_from_end(
         cells,
         reference_cycle=10,

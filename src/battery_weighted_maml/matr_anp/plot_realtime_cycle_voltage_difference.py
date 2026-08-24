@@ -129,6 +129,32 @@ def build_timed_voltage_difference(
     return TimedDischargeCurve(current.elapsed_time_s, current.q, delta)
 
 
+def delta_voltage_limits_from_curve(
+    curve: TimedDischargeCurve,
+    q_limits: tuple[float, float],
+    *,
+    margin_fraction: float = 0.05,
+) -> tuple[float, float]:
+    """Derive fixed y limits from one primary cycle while always including zero."""
+    if q_limits[0] >= q_limits[1]:
+        raise ValueError("q_limits must be increasing")
+    if margin_fraction < 0.0:
+        raise ValueError("margin_fraction cannot be negative")
+    valid = (
+        np.isfinite(curve.q)
+        & np.isfinite(curve.voltage_v)
+        & (curve.q >= q_limits[0])
+        & (curve.q <= q_limits[1])
+    )
+    if np.count_nonzero(valid) < 2:
+        raise ValueError("primary cycle has too few finite delta-V points")
+    data_min = min(0.0, float(np.min(curve.voltage_v[valid])))
+    data_max = max(0.0, float(np.max(curve.voltage_v[valid])))
+    span = max(data_max - data_min, 1.0e-3)
+    margin = max(0.005, margin_fraction * span)
+    return data_min - margin, data_max + margin
+
+
 def plot_realtime_voltage_difference(
     curve: TimedDischargeCurve,
     destination: str | Path,
@@ -239,12 +265,22 @@ def parse_args() -> argparse.Namespace:
         type=int,
         help="1 selects the last valid discharge cycle; 100 selects the 100th from end",
     )
+    parser.add_argument(
+        "--matched-cycle",
+        type=int,
+        help="also plot this cycle with the primary cycle's identical q/delta-V axes",
+    )
     parser.add_argument("--num-snapshots", type=int, default=5)
     parser.add_argument("--time-fractions", type=float, nargs="+")
     parser.add_argument("--q-min", type=float, default=0.0)
     parser.add_argument("--q-max", type=float, default=1.0)
     parser.add_argument("--delta-v-min", type=float, default=-0.5)
     parser.add_argument("--delta-v-max", type=float, default=0.1)
+    parser.add_argument(
+        "--auto-delta-v-range",
+        action="store_true",
+        help="derive the shared y range from the complete primary-cycle difference",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--dpi", type=int, default=180)
     return parser.parse_args()
@@ -279,6 +315,12 @@ def main() -> None:
         reference_cycle=args.reference_cycle,
         current_cycle=current_cycle,
     )
+    q_limits = (args.q_min, args.q_max)
+    delta_voltage_limits = (
+        delta_voltage_limits_from_curve(curve, q_limits)
+        if args.auto_delta_v_range
+        else (args.delta_v_min, args.delta_v_max)
+    )
     fractions = (
         args.time_fractions
         if args.time_fractions is not None
@@ -304,11 +346,44 @@ def main() -> None:
         reference_cycle=args.reference_cycle,
         current_cycle=current_cycle,
         fractions=fractions,
-        q_limits=(args.q_min, args.q_max),
-        delta_voltage_limits=(args.delta_v_min, args.delta_v_max),
+        q_limits=q_limits,
+        delta_voltage_limits=delta_voltage_limits,
         dpi=args.dpi,
     )
     summary.to_csv(destination / f"{stem}.csv", index=False)
+    matched_payload: dict[str, object] | None = None
+    matched_plot_path: Path | None = None
+    if args.matched_cycle is not None:
+        if args.matched_cycle == current_cycle:
+            raise ValueError("matched-cycle must differ from the primary current cycle")
+        matched_curve = build_timed_voltage_difference(
+            cell,
+            reference_cycle=args.reference_cycle,
+            current_cycle=args.matched_cycle,
+        )
+        matched_stem = (
+            f"{cell.cell_id}_cycle{args.matched_cycle}_minus_cycle"
+            f"{args.reference_cycle}_{len(fractions)}snapshots_matched_to_cycle"
+            f"{current_cycle}"
+        )
+        matched_plot_path = destination / f"{matched_stem}.png"
+        matched_summary = plot_realtime_voltage_difference(
+            matched_curve,
+            matched_plot_path,
+            cell_id=cell.cell_id,
+            reference_cycle=args.reference_cycle,
+            current_cycle=args.matched_cycle,
+            fractions=fractions,
+            q_limits=q_limits,
+            delta_voltage_limits=delta_voltage_limits,
+            dpi=args.dpi,
+        )
+        matched_summary.to_csv(destination / f"{matched_stem}.csv", index=False)
+        matched_payload = {
+            "current_cycle": args.matched_cycle,
+            "plot": str(matched_plot_path),
+            "axis_source_cycle": current_cycle,
+        }
     audit.to_csv(destination / "data_audit.csv", index=False)
     save_config(config, destination / "resolved_config.yaml")
     write_json(
@@ -323,15 +398,21 @@ def main() -> None:
             "current_cycle": current_cycle,
             "current_cycle_from_end": args.current_cycle_from_end,
             "time_fractions": fractions,
-            "q_limits": [args.q_min, args.q_max],
-            "delta_voltage_limits": [args.delta_v_min, args.delta_v_max],
+            "q_limits": list(q_limits),
+            "delta_voltage_limits": list(delta_voltage_limits),
+            "auto_delta_v_range": args.auto_delta_v_range,
+            "matched_plot": matched_payload,
             "future_curve_displayed": False,
             "snapshot_policy": "offline equal-duration replay",
             "plot": str(plot_path),
         },
     )
     print(f"Selected cell: {cell.cell_id}")
+    print(f"Primary cycle: {current_cycle}")
+    print(f"Shared delta-V limits: {delta_voltage_limits}")
     print(f"Plot: {plot_path.resolve()}")
+    if matched_plot_path is not None:
+        print(f"Matched plot: {matched_plot_path.resolve()}")
 
 
 if __name__ == "__main__":
