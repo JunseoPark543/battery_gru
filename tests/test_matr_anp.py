@@ -52,6 +52,11 @@ from battery_weighted_maml.matr_anp.plot_cycle_time_fraction_voltage import (
     plot_time_fraction_voltage_q,
     time_fraction_prefix,
 )
+from battery_weighted_maml.matr_anp.plot_reference_cycle_voltage_difference import (
+    plot_reference_voltage_differences,
+    select_reference_cells,
+    voltage_difference_curves,
+)
 from battery_weighted_maml.matr_anp.runtime import parameter_checksum
 from battery_weighted_maml.matr_anp.smoke_test import run_smoke
 from battery_weighted_maml.matr_anp.splits import make_splits
@@ -354,6 +359,37 @@ def test_cycle_time_fraction_voltage_q_plot(synthetic, tmp_path: Path) -> None:
     assert destination.is_file()
     assert np.allclose(summary["time_fraction"], fractions)
     assert summary["cutoff_q"].is_monotonic_increasing
+
+
+def test_reference_cycle_voltage_difference_grid(synthetic, tmp_path: Path) -> None:
+    _, cells, _, _, _, config = synthetic
+    selected = select_reference_cells(
+        cells, count=5, reference_cycle=10, seed=42
+    )
+    assert len(selected) == 5
+    assert len({cell.cell_id for cell in selected}) == 5
+    processor = PartialIVProcessor(
+        QGridConfig(minimum=0.0, maximum=1.0, num_points=32), config.data
+    )
+    curves = voltage_difference_curves(
+        selected[0], processor, reference_cycle=10
+    )
+    assert curves[0].cycle == 11
+    assert curves[-1].cycle == 28
+    assert np.allclose(curves[0].delta_voltage_v, -0.0018, atol=8.0e-4)
+
+    destination = tmp_path / "five_cells_cycle10_delta_voltage.png"
+    summary = plot_reference_voltage_differences(
+        selected,
+        processor,
+        destination,
+        reference_cycle=10,
+        columns=3,
+        dpi=80,
+    )
+    assert destination.is_file()
+    assert summary["cell_id"].nunique() == 5
+    assert summary["cycle"].min() == 11
 
 
 def _small_model_config() -> ModelConfig:
