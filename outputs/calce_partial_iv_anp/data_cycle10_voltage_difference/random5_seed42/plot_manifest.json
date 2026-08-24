@@ -1,8 +1,8 @@
 {
-  "created_at_utc": "2026-08-24T11:31:59.686540+00:00",
+  "created_at_utc": "2026-08-24T11:36:43.038772+00:00",
   "dataset": "CALCE",
   "data_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/CALCE",
-  "git_commit": "ceee97a07742fbe2801b23160b614be8d350d27a",
+  "git_commit": "d8e1b5690c840f04810cd2dc550e14bf3aea2921",
   "plot": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/calce_partial_iv_anp/data_cycle10_voltage_difference/random5_seed42/calce_5cells_cycle10_delta_voltage_q.png",
   "reference_cycle": 10,
   "selected_cells": [
@@ -15,5 +15,10 @@
   "seed": 42,
   "q_min": 0.0,
   "q_max": 1.0,
-  "q_points": 256
+  "q_points": 256,
+  "axis_reference": "outputs/matr_partial_iv_anp/data_cycle10_voltage_difference/random5_seed42",
+  "axis_limits": {
+    "delta_v_min": -1.1469516664997852,
+    "delta_v_max": 0.13720546624442223
+  }
 }
