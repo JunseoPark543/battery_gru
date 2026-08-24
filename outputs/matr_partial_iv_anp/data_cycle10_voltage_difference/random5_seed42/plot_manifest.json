@@ -1,0 +1,19 @@
+{
+  "created_at_utc": "2026-08-24T11:20:22.661147+00:00",
+  "dataset": "MATR",
+  "data_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/MATR",
+  "git_commit": "6713dfd22528c06e517aa6a8f7c094260659e188",
+  "plot": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/matr_partial_iv_anp/data_cycle10_voltage_difference/random5_seed42/matr_5cells_cycle10_delta_voltage_q.png",
+  "reference_cycle": 10,
+  "selected_cells": [
+    "MATR_b4c12",
+    "MATR_b2c4",
+    "MATR_b3c34",
+    "MATR_b1c25",
+    "MATR_b4c9"
+  ],
+  "seed": 42,
+  "q_min": 0.0,
+  "q_max": 1.0,
+  "q_points": 256
+}
