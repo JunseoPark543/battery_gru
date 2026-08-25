@@ -2,7 +2,7 @@
   "status": "completed",
   "algorithm": "partial_vq_forecasting",
   "run_name": "matr_partial_vq_attn_f0_s42",
-  "last_step": 20000,
+  "last_step": 26000,
   "best_step": 20000,
   "best_validation_voltage_rmse_v": 0.05901747375215666,
   "amp_overflow_skips": 0
