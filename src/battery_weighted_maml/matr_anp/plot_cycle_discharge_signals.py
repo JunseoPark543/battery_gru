@@ -1,4 +1,4 @@
-"""Plot voltage, current, and discharged capacity for one MATR discharge cycle."""
+"""Compare voltage, current, and discharged capacity across MATR cycles."""
 
 from __future__ import annotations
 
@@ -25,21 +25,42 @@ def select_cell(
     seed: int,
 ) -> CellData:
     """Select an explicit or deterministic random cell containing the cycle."""
+    return select_cell_for_cycles(cells, [cycle_number], cell_id, seed)
+
+
+def select_cell_for_cycles(
+    cells: Sequence[CellData],
+    cycle_numbers: Sequence[int],
+    cell_id: str | None,
+    seed: int,
+) -> CellData:
+    """Select one cell containing valid discharge curves for every cycle."""
+    requested = list(dict.fromkeys(int(value) for value in cycle_numbers))
+    if not requested or any(value <= 0 for value in requested):
+        raise ValueError("cycle numbers must be positive")
+    required = set(requested)
     eligible = [
         cell
         for cell in cells
-        if any(
-            cycle.cycle_number == cycle_number and cycle.discharge is not None
-            for cycle in cell.cycles
+        if required.issubset(
+            {
+                cycle.cycle_number
+                for cycle in cell.cycles
+                if cycle.discharge is not None
+            }
         )
     ]
     if cell_id is not None:
         matches = [cell for cell in eligible if cell.cell_id == cell_id]
         if not matches:
-            raise ValueError(f"{cell_id}: valid cycle {cycle_number} is unavailable")
+            raise ValueError(
+                f"{cell_id}: one or more requested cycles are unavailable: {requested}"
+            )
         return matches[0]
     if not eligible:
-        raise ValueError(f"no valid MATR cell contains cycle {cycle_number}")
+        raise ValueError(
+            f"no valid MATR cell contains every requested cycle: {requested}"
+        )
     index = int(np.random.default_rng(seed).integers(0, len(eligible)))
     return eligible[index]
 
@@ -116,18 +137,91 @@ def plot_discharge_signals(
     return frame
 
 
+def plot_multiple_cycle_discharge_signals(
+    curves: Sequence[tuple[int, TimedDischargeCurve]],
+    destination: str | Path,
+    *,
+    cell_id: str,
+    dpi: int = 180,
+) -> pd.DataFrame:
+    """Draw one cycle per row and one signal per column for direct comparison."""
+    if not curves:
+        raise ValueError("at least one cycle curve is required")
+    if dpi <= 0:
+        raise ValueError("dpi must be positive")
+    specifications = (
+        ("voltage_in_V", "Voltage (V)", "#1f77b4"),
+        ("current_in_A", "Current (A)", "#d62728"),
+        ("discharge_capacity_in_Ah", "Discharge capacity (Ah)", "#2ca02c"),
+    )
+    figure, axes = plt.subplots(
+        len(curves),
+        3,
+        figsize=(15.0, max(3.4, 2.8 * len(curves))),
+        sharex=False,
+        sharey="col",
+        squeeze=False,
+        layout="constrained",
+    )
+    frames: list[pd.DataFrame] = []
+    for row, (cycle_number, curve) in enumerate(curves):
+        frame = discharge_signal_frame(curve)
+        frame.insert(0, "cycle_number", cycle_number)
+        frames.append(frame)
+        time_min = frame["elapsed_time_min"]
+        for column_index, (column, label, color) in enumerate(specifications):
+            axis = axes[row, column_index]
+            axis.plot(time_min, frame[column], color=color, linewidth=1.25)
+            axis.set_title(f"Cycle {cycle_number} - {label}", fontsize=10)
+            axis.set_ylabel(label)
+            axis.set_xlabel("Elapsed discharge time (min)")
+            axis.grid(alpha=0.25)
+            axis.margins(x=0.0)
+        axes[row, 0].text(
+            0.01,
+            0.04,
+            f"duration={time_min.iloc[-1]:.2f} min\n"
+            f"final Qd={frame['discharge_capacity_in_Ah'].iloc[-1]:.4f} Ah",
+            transform=axes[row, 0].transAxes,
+            fontsize=8,
+            va="bottom",
+            bbox={"facecolor": "white", "alpha": 0.72, "edgecolor": "none"},
+        )
+    requested = ", ".join(str(cycle) for cycle, _ in curves)
+    figure.suptitle(
+        f"{cell_id}: discharge voltage, current, and capacity\ncycles {requested}",
+        fontsize=15,
+    )
+    output = Path(destination)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output, dpi=dpi)
+    plt.close(figure)
+    return pd.concat(frames, ignore_index=True)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Plot voltage, current, and discharge capacity versus time for one "
-            "MATR discharge cycle"
+            "or more MATR discharge cycles"
         )
     )
     parser.add_argument("--config", default="configs/matr_partial_iv_anp.yaml")
     parser.add_argument("--data-root")
     parser.add_argument("--output-dir")
     parser.add_argument("--cell-id", help="omit for deterministic random selection")
-    parser.add_argument("--cycle", type=int, default=130)
+    cycle_group = parser.add_mutually_exclusive_group()
+    cycle_group.add_argument(
+        "--cycle",
+        type=int,
+        help="one cycle number; defaults to 130 when neither option is given",
+    )
+    cycle_group.add_argument(
+        "--cycles",
+        type=int,
+        nargs="+",
+        help="multiple cycles to combine as rows of one comparison figure",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--dpi", type=int, default=180)
     return parser.parse_args()
@@ -140,25 +234,43 @@ def main() -> None:
         raise ValueError("this plot requires a MATR configuration")
     data_root = resolve_data_root(config, args.data_root)
     cells, _ = load_dataset(data_root, config.data, tolerate_invalid_cells=True)
-    cell = select_cell(cells, args.cycle, args.cell_id, args.seed)
-    curve = load_timed_discharge(cell, args.cycle)
+    cycle_numbers = list(
+        dict.fromkeys(args.cycles if args.cycles is not None else [args.cycle or 130])
+    )
+    cell = select_cell_for_cycles(cells, cycle_numbers, args.cell_id, args.seed)
+    curves = [
+        (cycle_number, load_timed_discharge(cell, cycle_number))
+        for cycle_number in cycle_numbers
+    ]
     output_dir = (
         Path(args.output_dir).resolve()
         if args.output_dir
         else Path(config.paths.output_root).resolve() / "data_cycle_discharge_signals"
     )
-    stem = f"{cell.cell_id}_cycle{args.cycle}_discharge_voltage_current_capacity"
-    frame = plot_discharge_signals(
-        curve,
-        output_dir / f"{stem}.png",
-        cell_id=cell.cell_id,
-        cycle_number=args.cycle,
-        dpi=args.dpi,
-    )
+    if len(curves) == 1:
+        cycle_number, curve = curves[0]
+        stem = f"{cell.cell_id}_cycle{cycle_number}_discharge_voltage_current_capacity"
+        frame = plot_discharge_signals(
+            curve,
+            output_dir / f"{stem}.png",
+            cell_id=cell.cell_id,
+            cycle_number=cycle_number,
+            dpi=args.dpi,
+        )
+    else:
+        cycle_label = "-".join(str(value) for value in cycle_numbers)
+        stem = f"{cell.cell_id}_cycles{cycle_label}_discharge_signal_comparison"
+        frame = plot_multiple_cycle_discharge_signals(
+            curves,
+            output_dir / f"{stem}.png",
+            cell_id=cell.cell_id,
+            dpi=args.dpi,
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
     frame.to_csv(output_dir / f"{stem}.csv", index=False)
     print(f"Selected cell: {cell.cell_id}")
-    print(f"Samples: {len(frame)}")
+    print(f"Cycles: {cycle_numbers}")
+    print(f"Total samples: {len(frame)}")
     print(f"Plot: {(output_dir / f'{stem}.png').resolve()}")
     print(f"CSV: {(output_dir / f'{stem}.csv').resolve()}")
 

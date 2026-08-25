@@ -5,6 +5,7 @@ import numpy as np
 from battery_weighted_maml.matr_anp.plot_cycle_discharge_signals import (
     discharge_signal_frame,
     plot_discharge_signals,
+    plot_multiple_cycle_discharge_signals,
 )
 from battery_weighted_maml.matr_anp.plot_cycle_time_fraction_voltage import (
     TimedDischargeCurve,
@@ -52,3 +53,16 @@ def test_time_prefix_preserves_current_and_capacity() -> None:
     assert prefix.discharge_capacity_ah is not None
     assert len(frame) == len(prefix.elapsed_time_s)
     assert np.isclose(frame["elapsed_time_s"].iloc[-1], 600.0)
+
+
+def test_multiple_cycles_are_combined_by_row(tmp_path) -> None:
+    destination = tmp_path / "multiple.png"
+    frame = plot_multiple_cycle_discharge_signals(
+        [(50, _curve()), (130, _curve()), (470, _curve())],
+        destination,
+        cell_id="MATR_TEST",
+        dpi=72,
+    )
+    assert destination.is_file()
+    assert frame["cycle_number"].drop_duplicates().tolist() == [50, 130, 470]
+    assert frame.groupby("cycle_number").size().to_dict() == {50: 50, 130: 50, 470: 50}
