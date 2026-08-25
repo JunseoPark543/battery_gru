@@ -63,7 +63,11 @@ training:
   checkpoint_interval: 500
   log_interval: 10
   early_stopping_patience: 12
-  use_amp: true
+  # fp32 is recommended for Transformer stability. The model is only ~145k
+  # parameters, so the memory saving from fp16 is not important here.
+  use_amp: false
+  amp_initial_scale: 1024.0
+  max_consecutive_amp_overflows: 8
   deterministic: true
 
 evaluation:

@@ -109,6 +109,16 @@ def _sample_batch(
     return episodes, attempts
 
 
+def _nonfinite_gradient_names(model: nn.Module, limit: int = 8) -> list[str]:
+    names: list[str] = []
+    for name, parameter in model.named_parameters():
+        if parameter.grad is not None and not torch.isfinite(parameter.grad).all():
+            names.append(name)
+            if len(names) >= limit:
+                break
+    return names
+
+
 def validation_metrics(
     model: nn.Module,
     cells: Sequence[CellData],
@@ -210,9 +220,12 @@ def train_run(
     else:
         run_dir = Path(resolved.paths.output_root).resolve() / run_name
         if run_dir.exists() and any(run_dir.iterdir()):
-            raise FileExistsError(
-                f"run directory already exists: {run_dir}; use --resume or change output_root"
-            )
+            existing_checkpoints = list((run_dir / "checkpoints").glob("*.pt"))
+            if existing_checkpoints:
+                raise FileExistsError(
+                    f"run directory already has checkpoints: {run_dir}; use --resume"
+                )
+            # A crash before the first checkpoint is safe to restart in place.
     run_dir.mkdir(parents=True, exist_ok=True)
     logger = configure_logger(run_dir / "train.log")
     audit.to_csv(run_dir / "data_audit.csv", index=False)
@@ -226,7 +239,17 @@ def train_run(
         weight_decay=resolved.training.weight_decay,
     )
     amp_enabled = resolved.training.use_amp and device.type == "cuda"
-    amp_scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
+    try:
+        amp_scaler = torch.amp.GradScaler(
+            "cuda",
+            enabled=amp_enabled,
+            init_scale=resolved.training.amp_initial_scale,
+        )
+    except (AttributeError, TypeError):  # PyTorch < 2.3
+        amp_scaler = torch.cuda.amp.GradScaler(
+            enabled=amp_enabled,
+            init_scale=resolved.training.amp_initial_scale,
+        )
     rng = np.random.default_rng(resolved.seed + 1009 * (fold + 1))
     start_step, best_step, stale = 1, 0, 0
     best_rmse = float("inf")
@@ -255,6 +278,12 @@ def train_run(
         resolved.model.use_attention, parameters, resolved.training.batch_size,
         resolved.training.max_steps,
     )
+    logger.info(
+        "numeric_precision amp=%s amp_initial_scale=%.7g grad_clip=%.7g",
+        amp_enabled,
+        float(amp_scaler.get_scale()),
+        resolved.training.gradient_clip_norm,
+    )
     write_json(
         run_dir / "run_manifest.json",
         {
@@ -278,6 +307,8 @@ def train_run(
         range(start_step, resolved.training.max_steps + 1), desc=run_name, unit="step"
     )
     last_step = start_step - 1
+    consecutive_amp_overflows = 0
+    total_amp_overflows = 0
     for step in progress:
         sampling_started = time.perf_counter()
         episodes, attempts = _sample_batch(
@@ -303,15 +334,58 @@ def train_run(
             )
         if not torch.isfinite(loss):
             raise FloatingPointError(f"non-finite loss at step {step}: {float(loss)}")
+        amp_scale_before = float(amp_scaler.get_scale())
         amp_scaler.scale(loss).backward()
         amp_scaler.unscale_(optimizer)
         gradient_norm = nn.utils.clip_grad_norm_(
             model.parameters(), resolved.training.gradient_clip_norm
         )
         if not torch.isfinite(gradient_norm):
-            raise FloatingPointError(f"non-finite gradient norm at step {step}")
+            bad_gradients = _nonfinite_gradient_names(model)
+            if not amp_enabled:
+                logger.error(
+                    "non-finite fp32 gradient step=%d loss=%.7g bad_parameters=%s "
+                    "cells=%s cycles=%s betas=%s",
+                    step,
+                    float(loss.detach().cpu()),
+                    bad_gradients,
+                    "|".join(item.cell_id for item in episodes),
+                    "|".join(str(item.cycle_number) for item in episodes),
+                    "|".join(f"{item.beta:.4f}" for item in episodes),
+                )
+                raise FloatingPointError(f"non-finite fp32 gradient norm at step {step}")
+            new_scale = max(1.0, amp_scale_before / 2.0)
+            amp_scaler.update(new_scale=new_scale)
+            optimizer.zero_grad(set_to_none=True)
+            consecutive_amp_overflows += 1
+            total_amp_overflows += 1
+            logger.warning(
+                "AMP overflow step=%d/%d update=SKIPPED scale=%.7g->%.7g "
+                "consecutive=%d/%d loss=%.7g bad_parameters=%s",
+                step,
+                resolved.training.max_steps,
+                amp_scale_before,
+                float(amp_scaler.get_scale()),
+                consecutive_amp_overflows,
+                resolved.training.max_consecutive_amp_overflows,
+                float(loss.detach().cpu()),
+                bad_gradients,
+            )
+            progress.set_postfix(
+                loss=f"{float(loss.detach().cpu()):.4g}",
+                status="amp-overflow-skip",
+                scale=f"{float(amp_scaler.get_scale()):.0f}",
+                refresh=False,
+            )
+            if consecutive_amp_overflows >= resolved.training.max_consecutive_amp_overflows:
+                raise FloatingPointError(
+                    f"AMP gradients remained non-finite for {consecutive_amp_overflows} "
+                    "consecutive attempts; set training.use_amp=false"
+                )
+            continue
         amp_scaler.step(optimizer)
         amp_scaler.update()
+        consecutive_amp_overflows = 0
 
         validate_now = (
             step == 1
@@ -349,6 +423,8 @@ def train_run(
             "stale_validations": stale,
             "elapsed_seconds": elapsed,
             "sampling_seconds": sampling_seconds,
+            "amp_scale": float(amp_scaler.get_scale()),
+            "amp_overflow_skips_total": total_amp_overflows,
             "cells": "|".join(item.cell_id for item in episodes),
             "cycles": "|".join(str(item.cycle_number) for item in episodes),
             "betas": "|".join(f"{item.beta:.4f}" for item in episodes),
@@ -414,6 +490,7 @@ def train_run(
             "last_step": last_step,
             "best_step": best_step,
             "best_validation_voltage_rmse_v": best_rmse,
+            "amp_overflow_skips": total_amp_overflows,
         },
     )
     logger.info("completed run=%s best_v_rmse=%.7g@%d", run_dir, best_rmse, best_step)

@@ -113,6 +113,14 @@ def test_model_predicts_curve_and_endpoint_after_observed_cut() -> None:
     assert set(parts) == {
         "future_voltage", "observed_reconstruction", "endpoint", "monotonic"
     }
+    loss.backward()
+    gradients = [
+        parameter.grad
+        for parameter in model.parameters()
+        if parameter.grad is not None
+    ]
+    assert gradients
+    assert all(torch.isfinite(gradient).all() for gradient in gradients)
 
 
 def test_synthetic_cell_episode_and_train_only_scaler(tmp_path) -> None:

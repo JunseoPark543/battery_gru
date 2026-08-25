@@ -57,7 +57,11 @@ class TrainingConfig:
     checkpoint_interval: int = 500
     log_interval: int = 10
     early_stopping_patience: int = 12
-    use_amp: bool = True
+    # This transformer is small enough that fp32 is the safer default. AMP can
+    # be enabled explicitly; the trainer then skips/reduces-scale on overflow.
+    use_amp: bool = False
+    amp_initial_scale: float = 1024.0
+    max_consecutive_amp_overflows: int = 8
     deterministic: bool = True
 
 
@@ -134,6 +138,8 @@ class ExperimentConfig:
             "checkpoint_interval": training.checkpoint_interval,
             "log_interval": training.log_interval,
             "early_stopping_patience": training.early_stopping_patience,
+            "amp_initial_scale": training.amp_initial_scale,
+            "max_consecutive_amp_overflows": training.max_consecutive_amp_overflows,
         }
         if any(value <= 0 for value in positive.values()):
             raise ValueError(f"training values must be positive: {positive}")

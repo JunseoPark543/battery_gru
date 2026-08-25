@@ -61,9 +61,16 @@ class PartialVQForecaster(nn.Module):
                 batch_first=True,
                 norm_first=True,
             )
-            self.attention = nn.TransformerEncoder(
-                encoder_layer, num_layers=config.attention_layers
-            )
+            try:
+                self.attention = nn.TransformerEncoder(
+                    encoder_layer,
+                    num_layers=config.attention_layers,
+                    enable_nested_tensor=False,
+                )
+            except TypeError:  # Older supported PyTorch releases.
+                self.attention = nn.TransformerEncoder(
+                    encoder_layer, num_layers=config.attention_layers
+                )
             self.cls_token = nn.Parameter(torch.empty(1, 1, config.hidden_dim))
             nn.init.normal_(self.cls_token, std=0.02)
         else:
