@@ -1,4 +1,4 @@
-"""Compare voltage, current, and discharged capacity across MATR cycles."""
+"""Compare voltage, current, and discharged capacity across battery cycles."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def select_cell_for_cycles(
     cell_id: str | None,
     seed: int,
 ) -> CellData:
-    """Select one cell containing valid discharge curves for every cycle."""
+    """Select one MATR/CALCE cell containing valid curves for every cycle."""
     requested = list(dict.fromkeys(int(value) for value in cycle_numbers))
     if not requested or any(value <= 0 for value in requested):
         raise ValueError("cycle numbers must be positive")
@@ -59,7 +59,7 @@ def select_cell_for_cycles(
         return matches[0]
     if not eligible:
         raise ValueError(
-            f"no valid MATR cell contains every requested cycle: {requested}"
+            f"no valid cell contains every requested cycle: {requested}"
         )
     index = int(np.random.default_rng(seed).integers(0, len(eligible)))
     return eligible[index]
@@ -203,7 +203,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Plot voltage, current, and discharge capacity versus time for one "
-            "or more MATR discharge cycles"
+            "or more MATR/CALCE discharge cycles"
         )
     )
     parser.add_argument("--config", default="configs/matr_partial_iv_anp.yaml")
@@ -230,8 +230,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     config = load_config(args.config)
-    if config.data.dataset.upper() != "MATR":
-        raise ValueError("this plot requires a MATR configuration")
+    dataset = config.data.dataset.upper()
+    if dataset not in {"MATR", "CALCE"}:
+        raise ValueError("this plot requires a MATR or CALCE configuration")
     data_root = resolve_data_root(config, args.data_root)
     cells, _ = load_dataset(data_root, config.data, tolerate_invalid_cells=True)
     cycle_numbers = list(
@@ -269,6 +270,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     frame.to_csv(output_dir / f"{stem}.csv", index=False)
     print(f"Selected cell: {cell.cell_id}")
+    print(f"Dataset: {dataset}")
     print(f"Cycles: {cycle_numbers}")
     print(f"Total samples: {len(frame)}")
     print(f"Plot: {(output_dir / f'{stem}.png').resolve()}")
