@@ -61,3 +61,18 @@ reveals its measured SOH label.
 For a live system, use `OnlineSOHSession.observe(q, voltage, current)`. If the
 cycler does not directly provide accumulated discharge capacity, construct q
 causally with `integrate_discharge_q(time_s, current_a, nominal_capacity_ah)`.
+
+Compare one held-out cell when the current cycle advances from 130 to 135 and
+140, using the same 50% within-cycle V/I prefix at every cut:
+
+```bash
+python -m battery_weighted_maml.streaming_soh.rolling_context_demo \
+  --checkpoint outputs/streaming_soh/matr_stream_soh_f0_s42/checkpoints/best.pt \
+  --cycles 130 135 140 \
+  --beta 0.5 \
+  --device cuda
+```
+
+At current cycle `k`, completed context contains cycles before `k`; the model
+uses only the selected prefix of cycle `k`. Metrics include both each cut's
+remaining-horizon RMSE and a fair common-horizon RMSE starting at cycle 140.
