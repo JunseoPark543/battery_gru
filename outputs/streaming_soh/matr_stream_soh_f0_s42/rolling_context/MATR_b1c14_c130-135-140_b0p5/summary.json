@@ -1,0 +1,13 @@
+{
+  "checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/streaming_soh/matr_stream_soh_f0_s42/checkpoints/last.pt",
+  "cell_id": "MATR_b1c14",
+  "current_cycles": [
+    130,
+    135,
+    140
+  ],
+  "current_cycle_prefix_beta": 0.5,
+  "semantics": "at current cycle k, SOH/V-I from cycles < k are completed context and only the beta prefix of cycle k V/I is observed",
+  "model_weights_updated": false,
+  "common_horizon_start": 140
+}
