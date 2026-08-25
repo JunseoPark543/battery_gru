@@ -1,0 +1,20 @@
+{
+  "checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/streaming_soh_anp/matr_stream_anp_f0_s42/checkpoints/best.pt",
+  "cell_id": "MATR_b1c14",
+  "current_cycle": 130,
+  "betas": [
+    0.1,
+    0.2,
+    0.3,
+    0.4,
+    0.5,
+    0.6,
+    0.7,
+    0.8,
+    0.9
+  ],
+  "latent_samples": 100,
+  "model_weights_updated": false,
+  "future_soh_used_by_model": false,
+  "update": "context prior and candidate state recomputed from observed prefix"
+}
