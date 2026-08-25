@@ -1,0 +1,9 @@
+{
+  "status": "completed",
+  "algorithm": "future_vq_latent_anp",
+  "run_name": "matr_future_vq_anp_f0_s42",
+  "last_step": 12500,
+  "best_step": 6500,
+  "selection_metric": "crps",
+  "best_validation_score": 0.04744439826424075
+}
