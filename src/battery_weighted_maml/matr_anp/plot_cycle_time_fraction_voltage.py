@@ -27,6 +27,8 @@ class TimedDischargeCurve:
     elapsed_time_s: np.ndarray
     q: np.ndarray
     voltage_v: np.ndarray
+    current_a: np.ndarray | None = None
+    discharge_capacity_ah: np.ndarray | None = None
 
 
 def _numeric(record: Mapping[str, Any], keys: Sequence[str]) -> np.ndarray:
@@ -128,20 +130,28 @@ def load_timed_discharge(cell: CellData, cycle_number: int) -> TimedDischargeCur
     selected_time = time_s[selected]
     selected_q = capacity[selected] / cell.nominal_capacity_ah
     selected_voltage = voltage[selected]
+    selected_current = current[selected]
+    selected_capacity = capacity[selected]
     order = np.argsort(selected_time, kind="stable")
     selected_time = selected_time[order]
     selected_q = selected_q[order]
     selected_voltage = selected_voltage[order]
+    selected_current = selected_current[order]
+    selected_capacity = selected_capacity[order]
 
     unique_time, first_indices = np.unique(selected_time, return_index=True)
     selected_q = selected_q[first_indices]
     selected_voltage = selected_voltage[first_indices]
+    selected_current = selected_current[first_indices]
+    selected_capacity = selected_capacity[first_indices]
     if unique_time.size < 2 or unique_time[-1] <= unique_time[0]:
         raise ValueError(f"{cell.cell_id} cycle {cycle_number}: valid elapsed-time range unavailable")
     return TimedDischargeCurve(
         elapsed_time_s=unique_time - unique_time[0],
         q=selected_q,
         voltage_v=selected_voltage,
+        current_a=selected_current,
+        discharge_capacity_ah=selected_capacity,
     )
 
 
@@ -156,6 +166,12 @@ def time_fraction_prefix(
     time_s = curve.elapsed_time_s[:right].copy()
     q = curve.q[:right].copy()
     voltage = curve.voltage_v[:right].copy()
+    current = None if curve.current_a is None else curve.current_a[:right].copy()
+    capacity = (
+        None
+        if curve.discharge_capacity_ah is None
+        else curve.discharge_capacity_ah[:right].copy()
+    )
     if not np.isclose(time_s[-1], cutoff):
         upper = min(right, len(curve.elapsed_time_s) - 1)
         lower = max(0, upper - 1)
@@ -168,7 +184,23 @@ def time_fraction_prefix(
             curve.voltage_v[lower]
             + weight * (curve.voltage_v[upper] - curve.voltage_v[lower]),
         )
-    return TimedDischargeCurve(time_s, q, voltage)
+        if current is not None and curve.current_a is not None:
+            current = np.append(
+                current,
+                curve.current_a[lower]
+                + weight * (curve.current_a[upper] - curve.current_a[lower]),
+            )
+        if capacity is not None and curve.discharge_capacity_ah is not None:
+            capacity = np.append(
+                capacity,
+                curve.discharge_capacity_ah[lower]
+                + weight
+                * (
+                    curve.discharge_capacity_ah[upper]
+                    - curve.discharge_capacity_ah[lower]
+                ),
+            )
+    return TimedDischargeCurve(time_s, q, voltage, current, capacity)
 
 
 def evenly_spaced_time_fractions(count: int) -> list[float]:
