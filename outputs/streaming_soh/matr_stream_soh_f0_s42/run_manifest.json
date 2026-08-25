@@ -1,0 +1,8 @@
+{
+  "status": "completed",
+  "algorithm": "streaming_soh",
+  "run_name": "matr_stream_soh_f0_s42",
+  "last_step": 20000,
+  "best_step": 18500,
+  "best_validation_soh_rmse": 0.031648482045230575
+}
