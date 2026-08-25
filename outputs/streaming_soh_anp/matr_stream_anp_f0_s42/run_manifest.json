@@ -1,0 +1,11 @@
+{
+  "status": "completed",
+  "algorithm": "streaming_soh_latent_anp",
+  "run_name": "matr_stream_anp_f0_s42",
+  "last_step": 6500,
+  "best_step": 500,
+  "selection_metric": "crps",
+  "best_validation_score": 0.025109182413459132,
+  "best_validation_soh_rmse": 0.047571417043706016,
+  "best_validation_soh_crps": 0.025109182413459132
+}
