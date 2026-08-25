@@ -1,0 +1,2 @@
+cell_id,batch,num_cycles,first_cycle,last_cycle,initial_soh,final_soh,eol_threshold,first_eol_crossing_cycle,reached_eol_threshold
+MATR_b4c24,b4,1115,1,1115,0.9506609999999999,0.5911384363636363,0.8,988,True
