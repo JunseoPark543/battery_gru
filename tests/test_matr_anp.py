@@ -23,6 +23,12 @@ from battery_weighted_maml.matr_anp.context_streaming import (
     _unique_betas,
     cycle_schedule,
 )
+from battery_weighted_maml.matr_anp.compare_soh_trajectory_distributions import (
+    cell_summary as cross_dataset_cell_summary,
+    normalized_distribution,
+    plot_comparison as plot_cross_dataset_comparison,
+    trajectory_frame as cross_dataset_trajectory_frame,
+)
 from battery_weighted_maml.matr_anp.data import (
     CellData,
     DischargeCurve,
@@ -234,6 +240,70 @@ def test_hust_uses_shared_voltage_q_difference_pipeline(tmp_path: Path) -> None:
     )
     assert curves[0].cycle == 11
     assert curves[-1].cycle == 28
+
+
+def test_matr_hust_soh_distribution_comparison(tmp_path: Path) -> None:
+    matr_root = write_synthetic_matr_dataset(
+        tmp_path, num_cells=3, num_cycles=28, signal_points=32
+    )
+    hust_root = tmp_path / "HUST"
+    hust_root.mkdir()
+    for index, source in enumerate(sorted(matr_root.glob("*.pkl"))):
+        with source.open("rb") as handle:
+            payload = pickle.load(handle)
+        payload["dataset"] = "HUST"
+        payload["cell_id"] = f"HUST_{index + 1}-1"
+        # Make the synthetic HUST trajectories visibly different while
+        # preserving a physically valid positive SOH curve.
+        degradation = np.linspace(1.0, 0.94, len(payload["cycle_data"]))
+        for record, scale in zip(payload["cycle_data"], degradation, strict=True):
+            record["discharge_capacity_in_Ah"] = np.asarray(
+                record["discharge_capacity_in_Ah"], dtype=np.float64
+            ) * scale
+        with (hust_root / f"HUST_{index + 1}-1.pkl").open("wb") as handle:
+            pickle.dump(payload, handle)
+
+    data_options = {
+        "minimum_valid_cycles": 24,
+        "minimum_discharge_points": 8,
+        "short_signal_threshold": 12,
+    }
+    matr_cells, _ = load_dataset(
+        matr_root, DataConfig(dataset="MATR", **data_options)
+    )
+    hust_cells, _ = load_dataset(
+        hust_root, DataConfig(dataset="HUST", **data_options)
+    )
+    trajectories = pd.concat(
+        [
+            cross_dataset_trajectory_frame(matr_cells, "MATR"),
+            cross_dataset_trajectory_frame(hust_cells, "HUST"),
+        ],
+        ignore_index=True,
+    )
+    summary = cross_dataset_cell_summary(trajectories, eol_threshold=0.8)
+    normalized, matrices = normalized_distribution(
+        trajectories, grid_points=51
+    )
+    output = plot_cross_dataset_comparison(
+        trajectories,
+        summary,
+        normalized,
+        matrices,
+        tmp_path / "matr_vs_hust.png",
+        eol_threshold=0.8,
+        dpi=72,
+    )
+
+    assert set(trajectories["dataset"]) == {"MATR", "HUST"}
+    assert len(summary) == 6
+    assert matrices["MATR"].shape == (3, 51)
+    assert matrices["HUST"].shape == (3, 51)
+    assert (normalized["q10"] <= normalized["q25"]).all()
+    assert (normalized["q25"] <= normalized["median"]).all()
+    assert (normalized["median"] <= normalized["q75"]).all()
+    assert (normalized["q75"] <= normalized["q90"]).all()
+    assert output.is_file()
 
 
 def test_interpolation_never_extrapolates_and_missing_reference_falls_back(synthetic) -> None:
