@@ -1,0 +1,11 @@
+{
+  "created_at_utc": "2026-08-28T14:12:53.284091+00:00",
+  "git_commit": "751ad33600b33cfd75e8f7e3371ddc93a12e589f",
+  "matr_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/MATR",
+  "hust_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/HUST",
+  "matr_cells": 169,
+  "hust_cells": 77,
+  "eol_threshold": 0.8,
+  "normalized_grid_points": 201,
+  "plot": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/data_analysis/matr_vs_hust_soh/matr_vs_hust_soh_distribution.png"
+}
