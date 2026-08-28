@@ -142,6 +142,67 @@ def plot_trajectory_betas(
     plt.close(figure)
 
 
+def plot_trajectory_alpha_overlay(
+    predictions: pd.DataFrame,
+    destination: str | Path,
+    *,
+    cell_id: str,
+) -> None:
+    """Overlay every requested context fraction for one held-out cell."""
+    alpha_values = sorted(float(value) for value in predictions["alpha"].unique())
+    if not alpha_values:
+        return
+    actual = (
+        predictions[["cycle", "actual_soh"]]
+        .dropna()
+        .drop_duplicates("cycle")
+        .sort_values("cycle")
+    )
+    colors = plt.get_cmap("viridis")
+    figure, axis = plt.subplots(figsize=(13, 7.5))
+    axis.plot(
+        actual["cycle"], actual["actual_soh"],
+        color="black", linewidth=2.0, label="actual SOH",
+    )
+    for index, alpha in enumerate(alpha_values):
+        selected = predictions[predictions["alpha"] == alpha]
+        beta = float(selected["beta"].min())
+        selected = selected[selected["beta"] == beta]
+        target = selected[selected["split"] == "target"].sort_values("cycle")
+        color = colors(index / max(1, len(alpha_values) - 1))
+        current_cycle = int(target["cycle"].iloc[0])
+        axis.plot(
+            target["cycle"], target["predicted_mean"],
+            color=color,
+            linewidth=1.5,
+            label=f"alpha={alpha:g} (start={current_cycle})",
+        )
+        axis.fill_between(
+            target["cycle"], target["lower_95"], target["upper_95"],
+            color=color,
+            alpha=0.045,
+        )
+        axis.axvline(
+            current_cycle,
+            color=color,
+            linestyle=":",
+            linewidth=0.9,
+            alpha=0.75,
+        )
+    axis.set(
+        xlabel="Cycle number",
+        ylabel="SOH",
+        title=f"{cell_id}: forecasts for all context fractions",
+    )
+    axis.grid(alpha=0.25)
+    axis.legend(fontsize=8, ncol=2)
+    figure.tight_layout()
+    output = Path(destination)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output, dpi=180)
+    plt.close(figure)
+
+
 def plot_metric_vs_beta(
     per_cell: pd.DataFrame,
     metric: str,

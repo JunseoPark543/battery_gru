@@ -6,7 +6,7 @@ import argparse
 import math
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
@@ -29,7 +29,12 @@ from .inference import (
     trajectory_metrics,
 )
 from .model import build_model
-from .plotting import plot_hs_attention, plot_metric_vs_beta, plot_trajectory_betas
+from .plotting import (
+    plot_hs_attention,
+    plot_metric_vs_beta,
+    plot_trajectory_alpha_overlay,
+    plot_trajectory_betas,
+)
 from .runtime import parameter_checksum, resolve_device, seed_everything, write_json
 
 
@@ -84,6 +89,9 @@ def evaluate_run(
     *,
     output_dir: str | Path | None = None,
     mc_samples: int | None = None,
+    evaluation_alphas: Sequence[float] | None = None,
+    cell_ids: Sequence[str] | None = None,
+    plot_cell_ids: Sequence[str] | None = None,
 ) -> Path:
     source = Path(checkpoint).resolve()
     dataset = config.data.dataset.upper()
@@ -119,6 +127,26 @@ def evaluate_run(
     missing = sorted(set(split["test_cells"]) - set(by_id))
     if missing:
         raise ValueError(f"checkpoint test cells are missing from {dataset} data: {missing}")
+    held_out_test_cells = list(split["test_cells"])
+    evaluated_cells = list(cell_ids) if cell_ids is not None else held_out_test_cells
+    if len(evaluated_cells) != len(set(evaluated_cells)):
+        raise ValueError("evaluation cell IDs must be unique")
+    invalid_cells = sorted(set(evaluated_cells) - set(held_out_test_cells))
+    if invalid_cells:
+        raise ValueError(
+            f"requested cells are not held-out test cells for this fold: {invalid_cells}"
+        )
+    if not evaluated_cells:
+        raise ValueError("at least one held-out test cell must be evaluated")
+    alphas = (
+        [float(value) for value in evaluation_alphas]
+        if evaluation_alphas is not None
+        else [float(value) for value in config.episode.evaluation_alphas]
+    )
+    if not alphas or len(alphas) != len(set(alphas)):
+        raise ValueError("evaluation alphas must be non-empty and unique")
+    if any(not 0.0 < alpha < 1.0 for alpha in alphas):
+        raise ValueError("evaluation alphas must lie in (0,1)")
     scalers = FoldScalers.from_dict(payload["scalers"])
     if set(scalers.fit_cell_ids) != set(split["train_cells"]):
         raise ValueError("checkpoint scalers were not fit on exactly the fold training cells")
@@ -144,9 +172,9 @@ def evaluate_run(
     prediction_frames: list[pd.DataFrame] = []
     valid_plot_keys: list[tuple[str, float, int]] = []
     attention_episode: Episode | None = None
-    for cell_index, cell_id in enumerate(split["test_cells"]):
+    for cell_index, cell_id in enumerate(evaluated_cells):
         cell = by_id[cell_id]
-        for alpha_index, alpha in enumerate(config.episode.evaluation_alphas):
+        for alpha_index, alpha in enumerate(alphas):
             baseline_cache = None
             for beta_index, beta in enumerate(config.episode.beta_values):
                 base = {
@@ -236,19 +264,44 @@ def evaluate_run(
         plot_metric_vs_beta(valid_metrics, "interval_width_95", "95% interval width", destination / "plots/interval_width_vs_beta.png")
         plot_metric_vs_beta(valid_metrics, "coverage_95", "95% interval coverage", destination / "plots/coverage_vs_beta.png")
     if valid_plot_keys and not predictions.empty:
-        requested = config.evaluation.trajectory_plot_cell
-        eligible = [key for key in valid_plot_keys if requested is None or key[0] == requested]
-        if not eligible:
-            raise ValueError(f"trajectory_plot_cell is not a valid evaluated test cell: {requested}")
-        cell_id, alpha, current_cycle = eligible[0]
-        selected = predictions[(predictions["cell_id"] == cell_id) & (predictions["alpha"] == alpha)]
-        plot_trajectory_betas(
-            selected,
-            destination / f"plots/trajectory_{cell_id}_alpha{alpha:g}.png",
-            cell_id=cell_id,
-            alpha=alpha,
-            current_cycle=current_cycle,
+        if plot_cell_ids is not None:
+            requested_plot_cells = list(plot_cell_ids)
+        elif config.evaluation.trajectory_plot_cell is not None:
+            requested_plot_cells = [config.evaluation.trajectory_plot_cell]
+        else:
+            requested_plot_cells = [valid_plot_keys[0][0]]
+        if len(requested_plot_cells) != len(set(requested_plot_cells)):
+            raise ValueError("plot cell IDs must be unique")
+        invalid_plot_cells = sorted(
+            set(requested_plot_cells) - set(evaluated_cells)
         )
+        if invalid_plot_cells:
+            raise ValueError(
+                f"plot cells were not included in this evaluation: {invalid_plot_cells}"
+            )
+        current_cycles = {
+            (cell_id, alpha): current_cycle
+            for cell_id, alpha, current_cycle in valid_plot_keys
+        }
+        for cell_id in requested_plot_cells:
+            cell_predictions = predictions[predictions["cell_id"] == cell_id]
+            if cell_predictions.empty:
+                continue
+            for alpha in sorted(cell_predictions["alpha"].unique()):
+                selected = cell_predictions[cell_predictions["alpha"] == alpha]
+                current_cycle = current_cycles[(cell_id, float(alpha))]
+                plot_trajectory_betas(
+                    selected,
+                    destination / f"plots/trajectory_{cell_id}_alpha{alpha:g}.png",
+                    cell_id=cell_id,
+                    alpha=float(alpha),
+                    current_cycle=current_cycle,
+                )
+            plot_trajectory_alpha_overlay(
+                cell_predictions,
+                destination / f"plots/trajectory_{cell_id}_all_alphas.png",
+                cell_id=cell_id,
+            )
     attention_artifacts: list[str] = []
     if rebuilt_spec.context_signal and attention_episode is not None:
         attention_batch = collate_episodes([attention_episode]).to(device)
@@ -290,7 +343,10 @@ def evaluate_run(
             "model": model_name,
             "fold": fold,
             "seed": config.seed,
-            "test_cells": split["test_cells"],
+            "test_cells": evaluated_cells,
+            "fold_test_cells": held_out_test_cells,
+            "evaluated_test_cells": evaluated_cells,
+            "evaluation_alphas": alphas,
             "mc_samples": sample_count,
             "parameter_checksum_before": checksum_before,
             "parameter_checksum_after": checksum_after,
@@ -312,6 +368,14 @@ def parse_args(default_config: str = "configs/matr_partial_iv_anp.yaml") -> argp
     parser.add_argument("--mc-samples", type=int)
     parser.add_argument("--output-dir")
     parser.add_argument("--fold", type=int, help="optional assertion against checkpoint fold")
+    parser.add_argument(
+        "--alphas", nargs="+", type=float,
+        help="evaluation-only context fractions; does not retrain the checkpoint",
+    )
+    parser.add_argument(
+        "--cells", nargs="+",
+        help="held-out test cells to evaluate and plot",
+    )
     return parser.parse_args()
 
 
@@ -331,6 +395,9 @@ def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
         data_root,
         output_dir=args.output_dir,
         mc_samples=args.mc_samples,
+        evaluation_alphas=args.alphas,
+        cell_ids=args.cells,
+        plot_cell_ids=args.cells,
     )
     print(f"Evaluation directory: {destination}")
 
