@@ -1,4 +1,4 @@
-"""Sequential portable runner for all MATR/CALCE ANP models and cell folds."""
+"""Sequential portable runner for BatteryLife ANP models and cell folds."""
 
 from __future__ import annotations
 
@@ -15,14 +15,38 @@ from .runtime import write_json
 from .train import train_run
 
 
+ABLATION_ALIASES = {
+    "A0": "soh_only_anp",
+    "A1": "hs_anp_pooled",
+    "A2": "hs_anp_add",
+    "A3": "hs_anp",
+}
+
+
+def resolve_model_names(requested: list[str]) -> list[str]:
+    """Resolve paper-facing A0--A3 names to the shared model registry."""
+    resolved = [ABLATION_ALIASES.get(name.upper(), name) for name in requested]
+    invalid = [name for name in resolved if name not in MODEL_NAMES]
+    if invalid:
+        raise ValueError(f"unknown ANP models: {invalid}")
+    if len(resolved) != len(set(resolved)):
+        raise ValueError("--models resolves to duplicate model variants")
+    return resolved
+
+
 def parse_args(default_config: str = "configs/matr_partial_iv_anp.yaml") -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run an ANP model/fold suite")
     parser.add_argument("--config", default=default_config)
     parser.add_argument("--data-root")
     parser.add_argument("--device")
     parser.add_argument(
-        "--models", nargs="+", choices=MODEL_NAMES,
+        "--models", nargs="+", choices=(*MODEL_NAMES, *ABLATION_ALIASES),
         default=["soh_only_anp", "hs_anp"],
+        help=(
+            "model registry names or ablation aliases: "
+            "A0=SOH-only, A1=pooled signal, A2=hierarchical addition, "
+            "A3=full gated HS-ANP"
+        ),
     )
     parser.add_argument("--folds", nargs="+", type=int)
     parser.add_argument("--max-steps", type=int)
@@ -36,6 +60,7 @@ def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
     config = load_config(args.config)
     if args.device:
         config.device = args.device
+    model_names = resolve_model_names(args.models)
     data_root = resolve_data_root(config, args.data_root)
     fold_count = config.split.num_folds if config.split.strategy == "kfold" else None
     if args.folds is None:
@@ -57,7 +82,9 @@ def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
         "status": "running",
         "started_at_utc": datetime.now(timezone.utc).isoformat(),
         "dataset": config.data.dataset.upper(),
-        "models": args.models,
+        "requested_models": args.models,
+        "models": model_names,
+        "ablation_aliases": ABLATION_ALIASES,
         "folds": folds,
         "max_steps_override": args.max_steps,
         "batch_size_override": args.batch_size,
@@ -66,7 +93,7 @@ def main(default_config: str = "configs/matr_partial_iv_anp.yaml") -> None:
         "runs": records,
     }
     write_json(suite_directory / "suite_manifest.json", manifest)
-    for model_name in args.models:
+    for model_name in model_names:
         for fold in folds:
             record = {
                 "model": model_name,

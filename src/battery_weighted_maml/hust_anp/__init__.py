@@ -1,1 +1,1 @@
-"""HUST data-analysis entry points using the shared partial I-V pipeline."""
+"""HUST entry points using the shared BatteryLife ANP pipeline."""

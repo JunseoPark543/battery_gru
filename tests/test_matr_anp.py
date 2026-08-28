@@ -16,6 +16,7 @@ from battery_weighted_maml.matr_anp.config import (
     PathsConfig,
     QGridConfig,
     SplitConfig,
+    load_config,
     resolve_data_root,
 )
 from battery_weighted_maml.matr_anp.context_streaming import (
@@ -74,6 +75,7 @@ from battery_weighted_maml.matr_anp.plot_realtime_cycle_voltage_difference impor
     valid_discharge_cycle_from_end,
 )
 from battery_weighted_maml.matr_anp.runtime import parameter_checksum
+from battery_weighted_maml.matr_anp.run_suite import resolve_model_names
 from battery_weighted_maml.matr_anp.smoke_test import run_smoke
 from battery_weighted_maml.matr_anp.splits import make_splits
 from battery_weighted_maml.matr_anp.synthetic import write_synthetic_matr_dataset
@@ -112,6 +114,25 @@ def test_data_root_priority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert resolve_data_root(config, None) == environment.resolve()
     monkeypatch.delenv("BATTERYLIFE_DATA_ROOT")
     assert resolve_data_root(config, None) == configured.resolve()
+
+
+def test_hust_hs_ablation_config_and_aliases() -> None:
+    config = load_config("configs/hust_hs_anp.yaml")
+    assert config.data.dataset == "HUST"
+    assert config.paths.data_root == "data/HUST"
+    assert config.episode.beta_values == [0.0]
+    assert config.episode.evaluation_alphas == [
+        0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7
+    ]
+    assert resolve_model_names(["A0", "A1", "A2", "A3"]) == [
+        "soh_only_anp",
+        "hs_anp_pooled",
+        "hs_anp_add",
+        "hs_anp",
+    ]
+    assert resolve_model_names(["a0", "a3"]) == ["soh_only_anp", "hs_anp"]
+    with pytest.raises(ValueError, match="duplicate"):
+        resolve_model_names(["A0", "soh_only_anp"])
 
 
 def test_fixed_grid_reference_beta_and_train_only_scaler(synthetic) -> None:
