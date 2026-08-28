@@ -48,6 +48,11 @@ def smoke_config(
     config.model.mlp_layers = 2
     config.model.iv_channels = [4, 8]
     config.model.iv_embedding_dim = 8
+    config.model.hs_d_model = 16
+    config.model.hs_attention_heads = 4
+    config.model.hs_intra_layers = 1
+    config.model.hs_dropout = 0.0
+    config.model.hs_signal_target_chunk_size = 4
     config.training.learning_rate = 5.0e-4
     config.training.max_steps = 1
     config.training.batch_size = 2
@@ -77,7 +82,13 @@ def run_smoke(
     )
     config = smoke_config(root / "runs", device, base_config)
     run_directories = {}
-    for model_name in ("soh_only_anp", "partial_iv_anp"):
+    for model_name in (
+        "soh_only_anp",
+        "partial_iv_anp",
+        "hs_anp_pooled",
+        "hs_anp_add",
+        "hs_anp",
+    ):
         run_directory = train_run(
             config,
             model_name,
@@ -126,6 +137,13 @@ def run_smoke(
         output_dir=root / "evaluation_soh_only",
         mc_samples=2,
     )
+    hs_evaluation_directory = evaluate_run(
+        config,
+        run_directories["hs_anp"] / "checkpoints/best.pt",
+        data_root,
+        output_dir=root / "evaluation_hs_anp",
+        mc_samples=2,
+    )
     soh_metrics = pd.read_csv(soh_evaluation_directory / "per_cell_metrics.csv")
     horizontal = soh_metrics[soh_metrics["status"] == "ok"].groupby(
         ["cell_id", "alpha"]
@@ -133,7 +151,8 @@ def run_smoke(
     if horizontal.empty or int(horizontal.max()) != 1:
         raise RuntimeError("SOH-only smoke evaluation is not horizontal across beta")
     comparison_directory = compare_evaluations(
-        [soh_evaluation_directory, evaluation_directory], root / "comparison"
+        [soh_evaluation_directory, evaluation_directory, hs_evaluation_directory],
+        root / "comparison",
     )
     test_cell = torch.load(
         partial_checkpoint, map_location="cpu", weights_only=False
@@ -153,6 +172,8 @@ def run_smoke(
         streaming_directory / "latency.csv",
         streaming_directory / "streaming_trajectory.png",
         comparison_directory / "rmse_model_comparison.png",
+        hs_evaluation_directory / "plots/hs_cycle_attention_alpha.png",
+        hs_evaluation_directory / "plots/hs_signal_attention_beta.png",
         training_summary,
     ]
     missing = [str(path) for path in required if not path.is_file()]
@@ -168,6 +189,7 @@ def run_smoke(
             "runs": {key: str(value) for key, value in run_directories.items()},
             "evaluation": str(evaluation_directory),
             "soh_only_evaluation": str(soh_evaluation_directory),
+            "hs_anp_evaluation": str(hs_evaluation_directory),
             "comparison": str(comparison_directory),
             "streaming": str(streaming_directory),
         },

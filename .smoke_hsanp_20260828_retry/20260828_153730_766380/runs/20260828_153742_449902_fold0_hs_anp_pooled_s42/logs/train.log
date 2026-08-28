@@ -1,0 +1,10 @@
+2026-08-28 15:37:42,795 | INFO | MATR fold=0 model=hs_anp_pooled parameters=14706 hidden=16 train_cells=3 validation_cells=1 test_cells=2
+2026-08-28 15:37:42,796 | INFO | held_out_test_cells=['MATR_SYNTH_02', 'MATR_SYNTH_03']
+2026-08-28 15:37:42,799 | INFO | train_data soh_min=0.8685 soh_median=0.9325 soh_max=0.998 cycles_max=28 valid_cells=6 invalid_files=0
+2026-08-28 15:37:42,800 | INFO | scalers soh_mean=0.9325833 soh_std=0.03650847 delta_v_mean=-0.02087061 delta_v_std=0.009846303 voltage_mean=3.329412 voltage_std=0.1725503 current_mean=1.1 current_std=0.0509902 fit_cells=3
+2026-08-28 15:37:42,801 | INFO | runtime device=cpu amp=False amp_initial_scale=1 deterministic=True batch_size=2 lr=0.0005 grad_clip=1 log_interval=1
+2026-08-28 15:37:42,802 | INFO | feature_cache grid_curves=84 references=6 raw_features=57 context_signals=0
+2026-08-28 15:37:43,330 | INFO | step=1/1 loss=2.073158 nll=2.059448 kl=0.0137092 kl_weight=1.0000 grad=6.85342 update=APPLIED successful_updates=1 amp_scale=1->1 validation_rmse=0.03062738 best=0.03062738@1 stale=0 overflows=0 elapsed=0.2s eta=0.0s gpu_mb=0.0/0.0 data_ms=3.82 collate_ms=0.59 transfer_ms=0.03
+2026-08-28 15:37:43,330 | INFO | batch step=1 cells=MATR_SYNTH_01|MATR_SYNTH_04 cycles=17|15 betas=0.5|0.5 attempts=2 context_points=6..9 target_points=12..14 target_raw=[0.8705,0.929] target_norm=[-1.700519,-0.09815075] pred_mean=[0.1012793,0.1667738] pred_std=[0.5691847,0.7883459] prior_std=[0.5933793,0.7803712] posterior_std=[0.5593303,0.7950517] iv_observed_mean=0.00000 lr=0.0005
+2026-08-28 15:37:43,330 | INFO | validation_per_cell step=1 mean_rmse=0.03062738 values=MATR_SYNTH_00:0.03062738
+2026-08-28 15:37:43,349 | INFO | Completed MATR ANP run: C:\Users\pc\Desktop\SIA LAB\battery_gru\.smoke_hsanp_20260828_retry\20260828_153730_766380\runs\20260828_153742_449902_fold0_hs_anp_pooled_s42

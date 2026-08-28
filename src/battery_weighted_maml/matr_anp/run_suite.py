@@ -20,7 +20,10 @@ def parse_args(default_config: str = "configs/matr_partial_iv_anp.yaml") -> argp
     parser.add_argument("--config", default=default_config)
     parser.add_argument("--data-root")
     parser.add_argument("--device")
-    parser.add_argument("--models", nargs="+", choices=MODEL_NAMES, default=list(MODEL_NAMES))
+    parser.add_argument(
+        "--models", nargs="+", choices=MODEL_NAMES,
+        default=["soh_only_anp", "hs_anp"],
+    )
     parser.add_argument("--folds", nargs="+", type=int)
     parser.add_argument("--max-steps", type=int)
     parser.add_argument("--batch-size", type=int)

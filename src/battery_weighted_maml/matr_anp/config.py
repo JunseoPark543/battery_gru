@@ -66,6 +66,14 @@ class ModelConfig:
     iv_channels: list[int] = field(default_factory=lambda: [16, 32, 32])
     iv_embedding_dim: int = 32
     minimum_std: float = 1.0e-3
+    hs_d_model: int = 128
+    hs_attention_heads: int = 4
+    hs_intra_layers: int = 2
+    hs_dropout: float = 0.1
+    hs_signal_target_chunk_size: int = 16
+    hs_signal_channels: list[str] = field(
+        default_factory=lambda: ["voltage", "current"]
+    )
 
 
 @dataclass
@@ -161,6 +169,19 @@ class ExperimentConfig:
             raise ValueError("wide hidden search range is invalid")
         if any(channel <= 0 for channel in model.iv_channels):
             raise ValueError("iv_channels must be positive")
+        if model.hs_d_model <= 0 or model.hs_d_model % model.hs_attention_heads:
+            raise ValueError(
+                "hs_d_model must be positive and divisible by hs_attention_heads"
+            )
+        if model.hs_intra_layers <= 0 or model.hs_signal_target_chunk_size <= 0:
+            raise ValueError("HS-ANP layer count and target chunk size must be positive")
+        if not 0.0 <= model.hs_dropout < 1.0:
+            raise ValueError("hs_dropout must lie in [0,1)")
+        if model.hs_signal_channels != ["voltage", "current"]:
+            raise ValueError(
+                "the first HS-ANP version requires hs_signal_channels "
+                "[voltage, current]"
+            )
         training = self.training
         positive = {
             "learning_rate": training.learning_rate,
@@ -187,6 +208,11 @@ class ExperimentConfig:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def complete_model_config_dict(payload: dict[str, Any]) -> dict[str, Any]:
+    """Fill fields added after older baseline checkpoints were created."""
+    return {**asdict(ModelConfig()), **dict(payload)}
 
 
 def load_config(path: str | Path) -> ExperimentConfig:

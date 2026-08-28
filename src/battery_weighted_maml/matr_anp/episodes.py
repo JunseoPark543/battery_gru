@@ -26,6 +26,8 @@ class Episode:
     target_cycles: np.ndarray
     target_soh_raw: np.ndarray
     iv_feature: np.ndarray
+    context_signal: np.ndarray
+    context_signal_mask: np.ndarray
     reference_cycles: tuple[int, ...]
 
 
@@ -38,6 +40,8 @@ class EpisodeBatch:
     target_y: torch.Tensor
     target_mask: torch.Tensor
     iv_feature: torch.Tensor
+    context_signal: torch.Tensor
+    context_signal_mask: torch.Tensor
     cell_ids: list[str]
     current_cycles: list[int]
     betas: list[float]
@@ -46,6 +50,7 @@ class EpisodeBatch:
         for name in (
             "context_x", "context_y", "context_mask", "target_x", "target_y",
             "target_mask", "iv_feature",
+            "context_signal", "context_signal_mask",
         ):
             setattr(self, name, getattr(self, name).to(device))
         return self
@@ -57,10 +62,15 @@ class EpisodeSampler:
         config: EpisodeConfig,
         processor: PartialIVProcessor,
         scalers: FoldScalers,
+        *,
+        include_current_iv: bool = True,
+        include_context_signal: bool = False,
     ) -> None:
         self.config = config
         self.processor = processor
         self.scalers = scalers
+        self.include_current_iv = bool(include_current_iv)
+        self.include_context_signal = bool(include_context_signal)
         self._eligible_positions_cache: dict[
             tuple[str, str, int, int, int], tuple[int, ...]
         ] = {}
@@ -85,13 +95,14 @@ class EpisodeSampler:
         high = min(count - 1, int(np.floor(self.config.training_alpha_range[1] * count)) - 1)
         positions: list[int] = []
         for position in range(low, high + 1):
-            cycle = cell.cycles[position]
-            if cycle.discharge is None:
-                continue
-            try:
-                self.processor.raw_feature(cell, cycle.cycle_number)
-            except EpisodeUnavailable:
-                continue
+            if self.include_current_iv:
+                cycle = cell.cycles[position]
+                if cycle.discharge is None:
+                    continue
+                try:
+                    self.processor.raw_feature(cell, cycle.cycle_number)
+                except EpisodeUnavailable:
+                    continue
             positions.append(position)
         result = tuple(positions)
         self._eligible_positions_cache[cache_key] = result
@@ -193,9 +204,42 @@ class EpisodeSampler:
         cycles = cell.cycle_numbers
         soh = cell.soh
         current_cycle = int(cycles[position])
-        fast: FastFeature = self.processor.build(
-            cell, current_cycle, beta, self.scalers
+        if self.include_current_iv:
+            fast: FastFeature = self.processor.build(
+                cell, current_cycle, beta, self.scalers
+            )
+            iv_feature = fast.values
+            reference_cycles = fast.reference_cycles
+        else:
+            # HS-ANP must never read Voltage/Current from the first target
+            # cycle or any later cycle. Keep the legacy field shape only for
+            # the shared baseline-compatible batch interface.
+            iv_feature = np.zeros(
+                (3, len(self.processor.grid)), dtype=np.float32
+            )
+            reference_cycles = ()
+
+        context_signal = np.zeros(
+            (len(selected_context), len(self.processor.grid), 2),
+            dtype=np.float32,
         )
+        context_signal_mask = np.zeros(
+            (len(selected_context), len(self.processor.grid)),
+            dtype=bool,
+        )
+        if self.include_context_signal:
+            for row, cycle_index in enumerate(selected_context):
+                context_cycle = cell.cycles[int(cycle_index)]
+                try:
+                    signal = self.processor.build_context_signal(
+                        cell,
+                        context_cycle.cycle_number,
+                        self.scalers,
+                    )
+                except EpisodeUnavailable:
+                    continue
+                context_signal[row] = signal.values
+                context_signal_mask[row] = signal.mask
         return Episode(
             cell_id=cell.cell_id,
             current_cycle=current_cycle,
@@ -207,8 +251,10 @@ class EpisodeSampler:
             target_y=self.scalers.transform_soh(soh[selected_target])[:, None].astype(np.float32),
             target_cycles=cycles[selected_target].copy(),
             target_soh_raw=soh[selected_target].copy(),
-            iv_feature=fast.values,
-            reference_cycles=fast.reference_cycles,
+            iv_feature=iv_feature,
+            context_signal=context_signal,
+            context_signal_mask=context_signal_mask,
+            reference_cycles=reference_cycles,
         )
 
 
@@ -234,6 +280,12 @@ def collate_episodes(episodes: Sequence[Episode]) -> EpisodeBatch:
     target_y = torch.zeros_like(target_x)
     target_mask = torch.zeros(batch, max_target, dtype=torch.bool)
     iv_feature = torch.zeros(batch, 3, q_length, dtype=torch.float32)
+    context_signal = torch.zeros(
+        batch, max_context, q_length, 2, dtype=torch.float32
+    )
+    context_signal_mask = torch.zeros(
+        batch, max_context, q_length, dtype=torch.bool
+    )
     for index, episode in enumerate(episodes):
         context_count = len(episode.context_x)
         target_count = len(episode.target_x)
@@ -246,6 +298,20 @@ def collate_episodes(episodes: Sequence[Episode]) -> EpisodeBatch:
         if episode.iv_feature.shape != (3, q_length):
             raise ValueError("every I-V feature must share shape [3,Q]")
         iv_feature[index] = torch.from_numpy(episode.iv_feature)
+        if episode.context_signal.shape != (context_count, q_length, 2):
+            raise ValueError(
+                "every context signal must have shape [context_points,Q,2]"
+            )
+        if episode.context_signal_mask.shape != (context_count, q_length):
+            raise ValueError(
+                "every context signal mask must have shape [context_points,Q]"
+            )
+        context_signal[index, :context_count] = torch.from_numpy(
+            episode.context_signal
+        )
+        context_signal_mask[index, :context_count] = torch.from_numpy(
+            episode.context_signal_mask
+        )
     return EpisodeBatch(
         context_x=context_x,
         context_y=context_y,
@@ -254,6 +320,8 @@ def collate_episodes(episodes: Sequence[Episode]) -> EpisodeBatch:
         target_y=target_y,
         target_mask=target_mask,
         iv_feature=iv_feature,
+        context_signal=context_signal,
+        context_signal_mask=context_signal_mask,
         cell_ids=[episode.cell_id for episode in episodes],
         current_cycles=[episode.current_cycle for episode in episodes],
         betas=[episode.beta for episode in episodes],

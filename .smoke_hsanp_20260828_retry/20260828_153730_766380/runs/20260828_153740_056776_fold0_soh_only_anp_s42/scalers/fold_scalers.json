@@ -1,0 +1,16 @@
+{
+  "fit_cell_ids": [
+    "MATR_SYNTH_01",
+    "MATR_SYNTH_04",
+    "MATR_SYNTH_05"
+  ],
+  "soh_mean": 0.9325833333333335,
+  "soh_std": 0.036508465532743985,
+  "max_cycle_train": 28,
+  "delta_voltage_mean": -0.020870610251096548,
+  "delta_voltage_std": 0.009846303074020615,
+  "current_mean": 1.1,
+  "current_std": 0.05099019513592783,
+  "voltage_mean": 3.3294124148352555,
+  "voltage_std": 0.1725502662436511
+}

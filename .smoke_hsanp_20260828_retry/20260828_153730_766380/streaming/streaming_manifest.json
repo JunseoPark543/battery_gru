@@ -1,0 +1,20 @@
+{
+  "status": "completed",
+  "completed_at_utc": "2026-08-28T06:38:16.556604+00:00",
+  "checkpoint": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\runs\\20260828_153741_213610_fold0_partial_iv_anp_s42\\checkpoints\\best.pt",
+  "dataset": "MATR",
+  "model": "partial_iv_anp",
+  "cell_id": "MATR_SYNTH_02",
+  "alpha": 0.5,
+  "betas": [
+    0.0,
+    0.5,
+    1.0
+  ],
+  "mc_samples": 2,
+  "test_time_optimizer": false,
+  "backward_called": false,
+  "parameter_checksum_before": "4fd2a7f13d5cbef5941248d080ce283c0357d81b9ae26f44ec67d649151ff07c",
+  "parameter_checksum_after": "4fd2a7f13d5cbef5941248d080ce283c0357d81b9ae26f44ec67d649151ff07c",
+  "parameters_exactly_equal": true
+}

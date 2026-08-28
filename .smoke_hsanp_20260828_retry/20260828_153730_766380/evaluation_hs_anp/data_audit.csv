@@ -1,0 +1,7 @@
+source_file,cell_id,status,nominal_capacity_ah,raw_cycle_count,valid_cycle_count,curve_cycle_count,missing_curve_count,short_curve_count,long_curve_count,minimum_signal_length,median_signal_length,maximum_signal_length,duplicate_cycle_count,nonfinite_capacity_count,nonmonotonic_curve_count,duplicate_q_count,current_signs,issues
+C:\Users\pc\Desktop\SIA LAB\battery_gru\.smoke_hsanp_20260828_retry\20260828_153730_766380\synthetic_data\MATR_synthetic\MATR_SYNTH_00.pkl,MATR_SYNTH_00,valid,1.1,28,28,28,0,0,0,32,32.0,32,0,0,0,0,-1,
+C:\Users\pc\Desktop\SIA LAB\battery_gru\.smoke_hsanp_20260828_retry\20260828_153730_766380\synthetic_data\MATR_synthetic\MATR_SYNTH_01.pkl,MATR_SYNTH_01,valid,1.1,28,28,28,0,0,0,32,32.0,32,0,0,0,0,-1,
+C:\Users\pc\Desktop\SIA LAB\battery_gru\.smoke_hsanp_20260828_retry\20260828_153730_766380\synthetic_data\MATR_synthetic\MATR_SYNTH_02.pkl,MATR_SYNTH_02,valid,1.1,28,28,28,0,0,0,32,32.0,32,0,0,0,0,-1,
+C:\Users\pc\Desktop\SIA LAB\battery_gru\.smoke_hsanp_20260828_retry\20260828_153730_766380\synthetic_data\MATR_synthetic\MATR_SYNTH_03.pkl,MATR_SYNTH_03,valid,1.1,28,28,28,0,0,0,32,32.0,32,0,0,0,0,-1,
+C:\Users\pc\Desktop\SIA LAB\battery_gru\.smoke_hsanp_20260828_retry\20260828_153730_766380\synthetic_data\MATR_synthetic\MATR_SYNTH_04.pkl,MATR_SYNTH_04,valid,1.1,28,28,28,0,0,0,32,32.0,32,0,0,0,0,-1,
+C:\Users\pc\Desktop\SIA LAB\battery_gru\.smoke_hsanp_20260828_retry\20260828_153730_766380\synthetic_data\MATR_synthetic\MATR_SYNTH_05.pkl,MATR_SYNTH_05,valid,1.1,28,28,28,0,0,0,32,32.0,32,0,0,0,0,-1,

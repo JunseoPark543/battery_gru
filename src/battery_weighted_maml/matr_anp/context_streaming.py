@@ -204,6 +204,8 @@ def context_streaming_run(
         config.episode,
         PartialIVProcessor(config.q_grid, config.data),
         scalers,
+        include_current_iv=not rebuilt.context_signal,
+        include_context_signal=rebuilt.context_signal,
     )
 
     step_label = "-".join(map(str, steps))

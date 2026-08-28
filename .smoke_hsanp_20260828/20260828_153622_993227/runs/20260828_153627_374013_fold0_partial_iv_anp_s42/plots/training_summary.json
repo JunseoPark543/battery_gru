@@ -1,0 +1,24 @@
+{
+  "run_directory": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828\\20260828_153622_993227\\runs\\20260828_153627_374013_fold0_partial_iv_anp_s42",
+  "model": "partial_iv_anp",
+  "fold": 0,
+  "status": "completed",
+  "last_step": 2,
+  "successful_optimizer_updates": 2,
+  "amp_overflow_skips": 0,
+  "runtime_hours": 1.3452805514033445e-05,
+  "initial_validation_rmse": 0.026939901074327,
+  "best_validation_step": 2,
+  "best_validation_rmse": 0.026907878258771,
+  "last_validation_rmse": 0.026907878258771,
+  "validation_improvement_percent": 0.11886760633474519,
+  "last_vs_best_degradation_percent": 0.0,
+  "best_batch_mean_rmse": {
+    "unknown": 0.02690788
+  },
+  "gradient_clipped_fraction_percent": 100.0,
+  "last_500_loss_mean": 1.3633005619049072,
+  "last_500_kl_mean": 0.01849893480539315,
+  "held_out_test_evaluated": false,
+  "plot": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828\\20260828_153622_993227\\runs\\20260828_153627_374013_fold0_partial_iv_anp_s42\\plots\\training_summary.png"
+}

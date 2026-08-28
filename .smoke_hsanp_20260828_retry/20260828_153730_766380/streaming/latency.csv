@@ -1,0 +1,4 @@
+cell_id,alpha,beta,current_cycle,preprocessing_latency_ms,inference_latency_mean_ms,inference_latency_median_ms,inference_latency_std_ms,combined_latency_ms,warmup,repeats,device
+MATR_SYNTH_02,0.5,0.0,14,2.9257999267429113,37.70700003951788,37.70700003951788,0.0,40.63279996626079,0,1,cpu
+MATR_SYNTH_02,0.5,0.5,14,0.3483002074062824,8.303300011903048,8.303300011903048,0.0,8.65160021930933,0,1,cpu
+MATR_SYNTH_02,0.5,1.0,14,0.29450003057718277,11.435399996116757,11.435399996116757,0.0,11.72990002669394,0,1,cpu

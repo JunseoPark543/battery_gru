@@ -60,6 +60,8 @@ def predict_episode(
                 batch.context_mask,
                 batch.target_x,
                 iv_feature=batch.iv_feature,
+                context_signal=batch.context_signal,
+                context_signal_mask=batch.context_signal_mask,
                 sample_latent=True,
             )
             normalized_mean = output["mean"][0, :target_count, 0]
@@ -198,7 +200,10 @@ def measure_forward_latency(
         for _ in range(warmup):
             model(
                 batch.context_x, batch.context_y, batch.context_mask, batch.target_x,
-                iv_feature=batch.iv_feature, sample_latent=False,
+                iv_feature=batch.iv_feature,
+                context_signal=batch.context_signal,
+                context_signal_mask=batch.context_signal_mask,
+                sample_latent=False,
             )
         synchronize()
         values = []
@@ -207,7 +212,10 @@ def measure_forward_latency(
             start = time.perf_counter()
             model(
                 batch.context_x, batch.context_y, batch.context_mask, batch.target_x,
-                iv_feature=batch.iv_feature, sample_latent=False,
+                iv_feature=batch.iv_feature,
+                context_signal=batch.context_signal,
+                context_signal_mask=batch.context_signal_mask,
+                sample_latent=False,
             )
             synchronize()
             values.append((time.perf_counter() - start) * 1_000.0)

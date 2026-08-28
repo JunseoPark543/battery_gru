@@ -45,6 +45,12 @@ model:
   iv_channels: [16, 32, 32]
   iv_embedding_dim: 32
   minimum_std: 0.001
+  hs_d_model: 128
+  hs_attention_heads: 4
+  hs_intra_layers: 2
+  hs_dropout: 0.1
+  hs_signal_target_chunk_size: 16
+  hs_signal_channels: [voltage, current]
 
 training:
   optimizer: adam

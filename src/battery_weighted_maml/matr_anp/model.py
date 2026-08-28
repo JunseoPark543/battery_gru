@@ -12,7 +12,15 @@ from torch.nn import functional as F
 from .config import ModelConfig
 
 
-MODEL_NAMES = ("soh_only_anp", "soh_only_anp_wide", "partial_iv_anp")
+MODEL_NAMES = (
+    "soh_only_anp",
+    "soh_only_anp_wide",
+    "partial_iv_anp",
+    "hs_anp_pooled",
+    "hs_anp_add",
+    "hs_anp",
+)
+HS_MODEL_NAMES = ("hs_anp_pooled", "hs_anp_add", "hs_anp")
 
 
 def _mlp(input_dim: int, hidden_dim: int, output_dim: int, layers: int) -> nn.Sequential:
@@ -91,6 +99,87 @@ class IVEncoder(nn.Module):
         return torch.where(present.unsqueeze(-1), embedding, null)
 
 
+def _sinusoidal_positions(
+    length: int,
+    dimension: int,
+    *,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """Return deterministic intra-cycle positional features ``[L,D]``."""
+    positions = torch.arange(length, device=device, dtype=torch.float32)[:, None]
+    frequencies = torch.exp(
+        torch.arange(0, dimension, 2, device=device, dtype=torch.float32)
+        * (-torch.log(torch.tensor(10_000.0, device=device)) / max(dimension, 1))
+    )
+    output = torch.zeros(length, dimension, device=device, dtype=torch.float32)
+    output[:, 0::2] = torch.sin(positions * frequencies)
+    if dimension > 1:
+        output[:, 1::2] = torch.cos(
+            positions * frequencies[: output[:, 1::2].shape[1]]
+        )
+    return output.to(dtype=dtype)
+
+
+class IntraCycleSignalEncoder(nn.Module):
+    """Encode historical V/I without collapsing its q-position sequence.
+
+    Input shapes are ``signal=[B,C,L,2]`` and ``mask=[B,C,L]``. The returned
+    full representation ``H`` is ``[B,C,L,D]`` and the masked mean ``hbar`` is
+    ``[B,C,D]``. All-missing historical curves remain exactly zero.
+    """
+
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+        dimension = config.hs_d_model
+        self.input_projection = nn.Linear(2, dimension)
+        layer = nn.TransformerEncoderLayer(
+            d_model=dimension,
+            nhead=config.hs_attention_heads,
+            dim_feedforward=4 * dimension,
+            dropout=config.hs_dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=False,
+        )
+        self.encoder = nn.TransformerEncoder(layer, num_layers=config.hs_intra_layers)
+        self.output_norm = nn.LayerNorm(dimension)
+
+    def forward(
+        self,
+        signal: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if signal.ndim != 4 or signal.shape[-1] != 2:
+            raise ValueError("context_signal must have shape [batch,context,q,2]")
+        if mask.shape != signal.shape[:3]:
+            raise ValueError("context_signal_mask must match [batch,context,q]")
+        batch, context, length, _ = signal.shape
+        flat_signal = signal.reshape(batch * context, length, 2)
+        flat_mask = mask.reshape(batch * context, length)
+        present = flat_mask.any(dim=1)
+        safe_mask = flat_mask.clone()
+        safe_mask[~present, 0] = True
+        masked_signal = flat_signal * flat_mask.unsqueeze(-1).to(signal.dtype)
+        tokens = self.input_projection(masked_signal)
+        tokens = tokens + _sinusoidal_positions(
+            length,
+            tokens.shape[-1],
+            device=tokens.device,
+            dtype=tokens.dtype,
+        ).unsqueeze(0)
+        encoded = self.encoder(tokens, src_key_padding_mask=~safe_mask)
+        encoded = self.output_norm(encoded)
+        encoded = encoded * flat_mask.unsqueeze(-1).to(encoded.dtype)
+        denominator = flat_mask.sum(dim=1, keepdim=True).clamp_min(1).to(encoded.dtype)
+        pooled = encoded.sum(dim=1) / denominator
+        pooled = pooled * present.unsqueeze(-1).to(pooled.dtype)
+        return (
+            encoded.reshape(batch, context, length, -1),
+            pooled.reshape(batch, context, -1),
+        )
+
+
 @dataclass(frozen=True)
 class ModelSpec:
     model_name: str
@@ -101,6 +190,9 @@ class ModelSpec:
     parameter_count: int
     parameter_match_target: int | None = None
     parameter_match_relative_error: float | None = None
+    context_signal: bool = False
+    signal_cross_attention: bool = False
+    gated_fusion: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -179,7 +271,10 @@ class AttentiveNeuralProcess(nn.Module):
         target_y: torch.Tensor | None = None,
         target_mask: torch.Tensor | None = None,
         iv_feature: torch.Tensor | None = None,
+        context_signal: torch.Tensor | None = None,
+        context_signal_mask: torch.Tensor | None = None,
         sample_latent: bool = True,
+        return_attention: bool = False,
     ) -> dict[str, torch.Tensor]:
         if context_x.shape != context_y.shape or context_x.ndim != 3:
             raise ValueError("context x/y must share shape [batch,points,1]")
@@ -248,6 +343,254 @@ class AttentiveNeuralProcess(nn.Module):
         }
 
 
+class HierarchicalSignalANP(AttentiveNeuralProcess):
+    """Signal-aware deterministic path with the baseline ANP latent path.
+
+    Only historical ``context_signal`` is accepted. There is deliberately no
+    target-signal argument: future target Voltage/Current cannot enter the
+    deterministic encoder, latent prior, posterior, decoder, or inference.
+    """
+
+    def __init__(
+        self,
+        config: ModelConfig,
+        *,
+        use_signal_cross_attention: bool,
+        use_gated_fusion: bool,
+    ) -> None:
+        # This preserves the SOH-only latent encoder and Gaussian decoder sizes.
+        super().__init__(config, hidden_dim=config.hidden_dim, conditional_iv=False)
+        self.use_signal_cross_attention = bool(use_signal_cross_attention)
+        self.use_gated_fusion = bool(use_gated_fusion)
+        dimension = config.hs_d_model
+        self.signal_target_chunk_size = config.hs_signal_target_chunk_size
+        self.signal_encoder = IntraCycleSignalEncoder(config)
+        self.xy_projection = nn.Linear(config.hidden_dim, dimension)
+        self.context_cycle_key = _mlp(1, dimension, dimension, 2)
+        self.target_cycle_query = nn.Sequential(
+            nn.Linear(config.hidden_dim, dimension),
+            nn.GELU(),
+            nn.Linear(dimension, dimension),
+        )
+        self.cycle_token_fusion = nn.Sequential(
+            nn.Linear(2 * dimension, dimension),
+            nn.GELU(),
+            nn.Dropout(config.hs_dropout),
+            nn.Linear(dimension, dimension),
+            nn.LayerNorm(dimension),
+        )
+        self.cycle_cross_attention = nn.MultiheadAttention(
+            dimension,
+            config.hs_attention_heads,
+            dropout=config.hs_dropout,
+            batch_first=True,
+        )
+        self.cycle_attention_norm = nn.LayerNorm(dimension)
+        self.signal_query = _mlp(2 * dimension, dimension, dimension, 2)
+        self.signal_key = nn.Linear(dimension, dimension, bias=False)
+        self.signal_value = nn.Linear(dimension, dimension, bias=False)
+        self.signal_scale = dimension**-0.5
+        self.signal_add_norm = nn.LayerNorm(dimension)
+        self.gate = _mlp(3 * dimension, dimension, dimension, 2)
+        self.deterministic_projection = nn.Sequential(
+            nn.Linear(dimension, config.hidden_dim),
+            nn.GELU(),
+            nn.LayerNorm(config.hidden_dim),
+        )
+
+    def _signal_cross_path(
+        self,
+        query: torch.Tensor,
+        cycle_representation: torch.Tensor,
+        cycle_attention: torch.Tensor,
+        full_signal: torch.Tensor,
+        signal_mask: torch.Tensor,
+        *,
+        return_attention: bool,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        batch, targets, dimension = query.shape
+        context, length = full_signal.shape[1:3]
+        keys = self.signal_key(full_signal)
+        values = self.signal_value(full_signal)
+        valid = signal_mask[:, None, :, :]
+        representations: list[torch.Tensor] = []
+        attention_chunks: list[torch.Tensor] = []
+        for start in range(0, targets, self.signal_target_chunk_size):
+            stop = min(start + self.signal_target_chunk_size, targets)
+            signal_query = self.signal_query(
+                torch.cat(
+                    [query[:, start:stop], cycle_representation[:, start:stop]],
+                    dim=-1,
+                )
+            )
+            scores = torch.einsum("btd,bcld->btcl", signal_query, keys)
+            scores = scores * self.signal_scale
+            scores = scores.masked_fill(~valid, -1.0e4)
+            beta = torch.softmax(scores, dim=-1)
+            beta = beta * valid.to(beta.dtype)
+            beta = beta / beta.sum(dim=-1, keepdim=True).clamp_min(1.0e-8)
+            per_cycle = torch.einsum("btcl,bcld->btcd", beta, values)
+            representations.append(
+                torch.einsum(
+                    "btc,btcd->btd",
+                    cycle_attention[:, start:stop],
+                    per_cycle,
+                )
+            )
+            if return_attention:
+                attention_chunks.append(beta)
+        representation = torch.cat(representations, dim=1)
+        beta_output = torch.cat(attention_chunks, dim=1) if return_attention else None
+        if representation.shape != (batch, targets, dimension):
+            raise RuntimeError("internal HS-ANP signal attention shape failure")
+        if beta_output is not None and beta_output.shape != (
+            batch,
+            targets,
+            context,
+            length,
+        ):
+            raise RuntimeError("internal HS-ANP beta shape failure")
+        return representation, beta_output
+
+    def forward(
+        self,
+        context_x: torch.Tensor,
+        context_y: torch.Tensor,
+        context_mask: torch.Tensor,
+        target_x: torch.Tensor,
+        *,
+        target_y: torch.Tensor | None = None,
+        target_mask: torch.Tensor | None = None,
+        iv_feature: torch.Tensor | None = None,
+        context_signal: torch.Tensor | None = None,
+        context_signal_mask: torch.Tensor | None = None,
+        sample_latent: bool = True,
+        return_attention: bool = False,
+    ) -> dict[str, torch.Tensor]:
+        if context_x.shape != context_y.shape or context_x.ndim != 3:
+            raise ValueError("context x/y must share shape [batch,points,1]")
+        if context_mask.shape != context_x.shape[:2] or not context_mask.any(dim=1).all():
+            raise ValueError("every HS-ANP example needs a valid context cycle")
+        if target_x.ndim != 3 or target_x.shape[-1] != 1:
+            raise ValueError("target_x must have shape [batch,target_points,1]")
+        if context_signal is None or context_signal_mask is None:
+            raise ValueError("HS-ANP requires historical context_signal and its mask")
+        if context_signal.shape[:2] != context_x.shape[:2]:
+            raise ValueError("context_signal context dimension must match context_x")
+        combined_signal_mask = context_signal_mask & context_mask.unsqueeze(-1)
+
+        full_signal, pooled_signal = self.signal_encoder(
+            context_signal,
+            combined_signal_mask,
+        )
+        xy = self.context_encoder(torch.cat([context_x, context_y], dim=-1))
+        xy = self.context_attention.self_attention(xy, context_mask)
+        cycle_tokens = self.cycle_token_fusion(
+            torch.cat([self.xy_projection(xy), pooled_signal], dim=-1)
+        )
+        cycle_tokens = cycle_tokens * context_mask.unsqueeze(-1).to(cycle_tokens.dtype)
+        target_query = self.target_cycle_query(self.target_query(target_x))
+        # Keys and values both originate from the fused cycle token; the
+        # normalized cycle coordinate is added as a positional feature.
+        cycle_keys = cycle_tokens + self.context_cycle_key(context_x)
+        attended, alpha = self.cycle_cross_attention(
+            target_query,
+            cycle_keys,
+            cycle_tokens,
+            key_padding_mask=~context_mask,
+            need_weights=True,
+            average_attn_weights=True,
+        )
+        r_cyc = self.cycle_attention_norm(target_query + attended)
+
+        beta: torch.Tensor | None = None
+        r_sig = torch.zeros_like(r_cyc)
+        gate = torch.zeros_like(r_cyc)
+        if self.use_signal_cross_attention:
+            r_sig, beta = self._signal_cross_path(
+                target_query,
+                r_cyc,
+                alpha,
+                full_signal,
+                combined_signal_mask,
+                return_attention=return_attention,
+            )
+            if self.use_gated_fusion:
+                gate = torch.sigmoid(
+                    self.gate(torch.cat([target_query, r_cyc, r_sig], dim=-1))
+                )
+                fused = self.signal_add_norm(r_cyc + gate * r_sig)
+            else:
+                fused = self.signal_add_norm(r_cyc + r_sig)
+        else:
+            fused = r_cyc
+        deterministic = self.deterministic_projection(fused)
+
+        # The latent path is intentionally identical to SOH-only ANP and never
+        # receives context_signal, iv_feature, or any target Voltage/Current.
+        prior_mean, prior_std = self._latent_distribution(
+            context_x,
+            context_y,
+            context_mask,
+            None,
+        )
+        if target_y is not None:
+            if target_mask is None or target_y.shape != target_x.shape:
+                raise ValueError("training posterior requires matching target_y and mask")
+            posterior_mean, posterior_std = self._latent_distribution(
+                torch.cat([context_x, target_x], dim=1),
+                torch.cat([context_y, target_y], dim=1),
+                torch.cat([context_mask, target_mask], dim=1),
+                None,
+            )
+            latent_mean, latent_std = posterior_mean, posterior_std
+        else:
+            posterior_mean, posterior_std = prior_mean, prior_std
+            latent_mean, latent_std = prior_mean, prior_std
+        latent = (
+            latent_mean + latent_std * torch.randn_like(latent_std)
+            if sample_latent
+            else latent_mean
+        )
+        repeated_latent = latent[:, None, :].expand(-1, target_x.shape[1], -1)
+        decoded = self.decoder(
+            torch.cat([target_x, deterministic, repeated_latent], dim=-1)
+        )
+        prediction_mean, raw_prediction_std = decoded.chunk(2, dim=-1)
+        output = {
+            "mean": prediction_mean,
+            "std": F.softplus(raw_prediction_std) + self.minimum_std,
+            "prior_mean": prior_mean,
+            "prior_std": prior_std,
+            "posterior_mean": posterior_mean,
+            "posterior_std": posterior_std,
+        }
+        if return_attention:
+            output.update(
+                {
+                    "H": full_signal,
+                    "hbar": pooled_signal,
+                    "cycle_tokens": cycle_tokens,
+                    "cycle_attention": alpha,
+                    "signal_attention": (
+                        beta
+                        if beta is not None
+                        else full_signal.new_zeros(
+                            target_x.shape[0],
+                            target_x.shape[1],
+                            context_x.shape[1],
+                            context_signal.shape[2],
+                        )
+                    ),
+                    "r_cyc": r_cyc,
+                    "r_sig": r_sig,
+                    "r_det": fused,
+                    "fusion_gate": gate,
+                }
+            )
+        return output
+
+
 def parameter_count(model: nn.Module) -> int:
     return sum(parameter.numel() for parameter in model.parameters())
 
@@ -261,7 +604,7 @@ def build_model(
     config: ModelConfig,
     *,
     resolved_hidden_dim: int | None = None,
-) -> tuple[AttentiveNeuralProcess, ModelSpec]:
+) -> tuple[nn.Module, ModelSpec]:
     if model_name not in MODEL_NAMES:
         raise ValueError(f"model must be one of {MODEL_NAMES}, got {model_name}")
     if model_name == "partial_iv_anp":
@@ -276,6 +619,26 @@ def build_model(
         spec = ModelSpec(
             model_name, config.hidden_dim, config.latent_dim,
             config.attention_heads, False, parameter_count(model),
+        )
+        return model, spec
+    if model_name in HS_MODEL_NAMES:
+        use_signal_cross_attention = model_name != "hs_anp_pooled"
+        use_gated_fusion = model_name == "hs_anp"
+        model = HierarchicalSignalANP(
+            config,
+            use_signal_cross_attention=use_signal_cross_attention,
+            use_gated_fusion=use_gated_fusion,
+        )
+        spec = ModelSpec(
+            model_name,
+            config.hidden_dim,
+            config.latent_dim,
+            config.hs_attention_heads,
+            False,
+            parameter_count(model),
+            context_signal=True,
+            signal_cross_attention=use_signal_cross_attention,
+            gated_fusion=use_gated_fusion,
         )
         return model, spec
 

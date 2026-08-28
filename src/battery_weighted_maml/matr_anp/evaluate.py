@@ -12,9 +12,15 @@ import numpy as np
 import pandas as pd
 import torch
 
-from .config import ExperimentConfig, load_config, resolve_data_root, save_config
+from .config import (
+    ExperimentConfig,
+    complete_model_config_dict,
+    load_config,
+    resolve_data_root,
+    save_config,
+)
 from .data import load_dataset
-from .episodes import EpisodeSampler
+from .episodes import Episode, EpisodeSampler, collate_episodes
 from .features import EpisodeUnavailable, FoldScalers, PartialIVProcessor
 from .inference import (
     measure_forward_latency,
@@ -23,7 +29,7 @@ from .inference import (
     trajectory_metrics,
 )
 from .model import build_model
-from .plotting import plot_metric_vs_beta, plot_trajectory_betas
+from .plotting import plot_hs_attention, plot_metric_vs_beta, plot_trajectory_betas
 from .runtime import parameter_checksum, resolve_device, seed_everything, write_json
 
 
@@ -41,7 +47,11 @@ def _validate_checkpoint_config(config: ExperimentConfig, payload: dict[str, Any
     saved = payload.get("config", {})
     current = config.to_dict()
     for section in ("seed", "data", "q_grid", "episode", "model"):
-        if saved.get(section) != current.get(section):
+        saved_section = saved.get(section)
+        current_section = current.get(section)
+        if section == "model" and isinstance(saved_section, dict):
+            saved_section = complete_model_config_dict(saved_section)
+        if saved_section != current_section:
             raise ValueError(
                 f"evaluation config section '{section}' differs from the training checkpoint"
             )
@@ -115,7 +125,13 @@ def evaluate_run(
     if set(scalers.fit_cell_ids) & set(split["test_cells"]):
         raise ValueError("test-cell leakage detected in checkpoint scalers")
     processor = PartialIVProcessor(config.q_grid, config.data)
-    sampler = EpisodeSampler(config.episode, processor, scalers)
+    sampler = EpisodeSampler(
+        config.episode,
+        processor,
+        scalers,
+        include_current_iv=not rebuilt_spec.context_signal,
+        include_context_signal=rebuilt_spec.context_signal,
+    )
     fold = int(split["fold"])
 
     destination = Path(output_dir).resolve() if output_dir else source.parent.parent / "evaluation" / source.stem
@@ -127,6 +143,7 @@ def evaluate_run(
     metric_rows: list[dict[str, Any]] = []
     prediction_frames: list[pd.DataFrame] = []
     valid_plot_keys: list[tuple[str, float, int]] = []
+    attention_episode: Episode | None = None
     for cell_index, cell_id in enumerate(split["test_cells"]):
         cell = by_id[cell_id]
         for alpha_index, alpha in enumerate(config.episode.evaluation_alphas):
@@ -199,6 +216,8 @@ def evaluate_run(
                     )
                 )
                 valid_plot_keys.append((cell_id, float(alpha), episode.current_cycle))
+                if rebuilt_spec.context_signal and attention_episode is None:
+                    attention_episode = episode
 
     per_cell = pd.DataFrame(metric_rows)
     predictions = (
@@ -230,6 +249,34 @@ def evaluate_run(
             alpha=alpha,
             current_cycle=current_cycle,
         )
+    attention_artifacts: list[str] = []
+    if rebuilt_spec.context_signal and attention_episode is not None:
+        attention_batch = collate_episodes([attention_episode]).to(device)
+        with torch.no_grad():
+            attention_output = model(
+                attention_batch.context_x,
+                attention_batch.context_y,
+                attention_batch.context_mask,
+                attention_batch.target_x,
+                iv_feature=attention_batch.iv_feature,
+                context_signal=attention_batch.context_signal,
+                context_signal_mask=attention_batch.context_signal_mask,
+                sample_latent=False,
+                return_attention=True,
+            )
+        attention_arrays = {
+            key: value.detach().cpu().numpy()
+            for key, value in attention_output.items()
+            if key in {"cycle_attention", "signal_attention", "fusion_gate"}
+        }
+        attention_paths = plot_hs_attention(
+            attention_episode,
+            attention_arrays,
+            processor.grid,
+            scalers,
+            destination / "plots",
+        )
+        attention_artifacts = [str(path) for path in attention_paths]
     checksum_after = parameter_checksum(model)
     if checksum_before != checksum_after:
         raise RuntimeError("evaluation changed model parameters")
@@ -248,6 +295,7 @@ def evaluate_run(
             "parameter_checksum_before": checksum_before,
             "parameter_checksum_after": checksum_after,
             "test_time_optimization": False,
+            "attention_artifacts": attention_artifacts,
             "num_valid_combinations": int((per_cell["status"] == "ok").sum()),
             "num_skipped_combinations": int((per_cell["status"] != "ok").sum()),
         },

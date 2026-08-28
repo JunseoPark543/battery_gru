@@ -8,7 +8,99 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+
+from .episodes import Episode
+from .features import FoldScalers
+
+
+def plot_hs_attention(
+    episode: Episode,
+    attention: dict[str, object],
+    q_grid: np.ndarray,
+    scalers: FoldScalers,
+    destination: str | Path,
+) -> tuple[Path, Path]:
+    """Visualize hierarchical cycle attention alpha and signal attention beta.
+
+    The plotted signals belong only to historical context cycles. Attention is
+    model relevance, not a causal attribution score.
+    """
+    alpha = np.asarray(attention["cycle_attention"])[0]
+    beta = np.asarray(attention["signal_attention"])[0]
+    gate = np.asarray(attention["fusion_gate"])[0]
+    context_count = len(episode.context_x)
+    target_count = len(episode.target_x)
+    alpha = alpha[:target_count, :context_count]
+    beta = beta[:target_count, :context_count, : len(q_grid)]
+    context_cycles = np.rint(
+        episode.context_x[:, 0] * float(scalers.max_cycle_train)
+    ).astype(int)
+    target_cycles = episode.target_cycles.astype(int)
+
+    output = Path(destination)
+    output.mkdir(parents=True, exist_ok=True)
+    alpha_path = output / "hs_cycle_attention_alpha.png"
+    beta_path = output / "hs_signal_attention_beta.png"
+
+    figure, axis = plt.subplots(figsize=(11, 6.5))
+    image_handle = axis.imshow(alpha, aspect="auto", origin="lower", cmap="viridis")
+    x_positions = np.linspace(0, max(context_count - 1, 0), min(context_count, 10), dtype=int)
+    y_positions = np.linspace(0, max(target_count - 1, 0), min(target_count, 10), dtype=int)
+    axis.set_xticks(x_positions, context_cycles[x_positions])
+    axis.set_yticks(y_positions, target_cycles[y_positions])
+    axis.set(
+        xlabel="Historical context cycle",
+        ylabel="Future target cycle",
+        title=f"{episode.cell_id}: cycle-level attention alpha",
+    )
+    figure.colorbar(image_handle, ax=axis, label="Attention weight")
+    figure.tight_layout()
+    figure.savefig(alpha_path, dpi=180)
+    plt.close(figure)
+
+    target_index = 0
+    signal_present = episode.context_signal_mask.any(axis=-1)
+    if signal_present.any():
+        selectable_alpha = np.where(signal_present, alpha[target_index], -np.inf)
+        context_index = int(np.argmax(selectable_alpha))
+    else:
+        context_index = int(np.argmax(alpha[target_index]))
+    mask = episode.context_signal_mask[context_index]
+    voltage = (
+        episode.context_signal[context_index, :, 0] * scalers.voltage_std
+        + scalers.voltage_mean
+    )
+    current = (
+        episode.context_signal[context_index, :, 1] * scalers.current_std
+        + scalers.current_mean
+    )
+    beta_values = beta[target_index, context_index]
+    gate_mean = float(np.mean(gate[target_index])) if gate.size else 0.0
+    figure, axes = plt.subplots(2, 1, figsize=(11, 8), sharex=True)
+    axes[0].plot(q_grid[mask], voltage[mask], color="tab:blue", label="Voltage [V]")
+    twin = axes[0].twinx()
+    twin.plot(
+        q_grid[mask], current[mask], color="tab:orange", alpha=0.8,
+        label="|Current| [A]",
+    )
+    axes[0].set_ylabel("Voltage [V]", color="tab:blue")
+    twin.set_ylabel("|Current| [A]", color="tab:orange")
+    axes[0].grid(alpha=0.2)
+    axes[1].plot(q_grid[mask], beta_values[mask], color="tab:purple")
+    axes[1].fill_between(q_grid[mask], 0.0, beta_values[mask], color="tab:purple", alpha=0.2)
+    axes[1].set(xlabel="Normalized discharge capacity q", ylabel="Signal attention beta")
+    axes[1].grid(alpha=0.2)
+    figure.suptitle(
+        f"{episode.cell_id}: target {target_cycles[target_index]} attends to "
+        f"context {context_cycles[context_index]} "
+        f"(alpha={alpha[target_index, context_index]:.3f}, mean gate={gate_mean:.3f})"
+    )
+    figure.tight_layout()
+    figure.savefig(beta_path, dpi=180)
+    plt.close(figure)
+    return alpha_path, beta_path
 
 
 def plot_trajectory_betas(

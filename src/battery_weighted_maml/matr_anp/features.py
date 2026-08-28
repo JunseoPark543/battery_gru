@@ -33,6 +33,19 @@ class FastFeature:
     reference_cycles: tuple[int, ...]
 
 
+@dataclass(frozen=True)
+class ContextSignal:
+    """One historical cycle on the existing fixed-q grid.
+
+    ``values`` has shape ``[Q,2]`` with training-fold-normalized discharge
+    voltage and current magnitude. ``mask`` marks coordinates observed in the
+    historical cycle; values outside the mask are exactly zero.
+    """
+
+    values: np.ndarray
+    mask: np.ndarray
+
+
 @dataclass
 class FoldScalers:
     fit_cell_ids: list[str]
@@ -43,6 +56,8 @@ class FoldScalers:
     delta_voltage_std: float
     current_mean: float
     current_std: float
+    voltage_mean: float = 0.0
+    voltage_std: float = 1.0
 
     @classmethod
     def fit(
@@ -60,7 +75,20 @@ class FoldScalers:
         max_cycle = max(int(cell.cycle_numbers.max()) for cell in train_cells)
         delta_values: list[np.ndarray] = []
         current_values: list[np.ndarray] = []
+        voltage_count = 0
+        voltage_sum = 0.0
+        voltage_square_sum = 0.0
         for cell in train_cells:
+            for cycle in cell.cycles:
+                if cycle.discharge is None:
+                    continue
+                grid_curve = processor._interpolate_cycle(cell, cycle)
+                values = grid_curve.voltage_v[grid_curve.mask]
+                voltage_count += int(values.size)
+                voltage_sum += float(np.sum(values, dtype=np.float64))
+                voltage_square_sum += float(
+                    np.sum(np.square(values, dtype=np.float64), dtype=np.float64)
+                )
             for position in range(minimum_current_position, len(cell.cycles)):
                 current_cycle = cell.cycles[position]
                 if current_cycle.discharge is None:
@@ -75,8 +103,15 @@ class FoldScalers:
                 current_values.append(current[mask])
         if not delta_values or not current_values:
             raise ValueError("training cells contain no valid partial I-V features")
+        if voltage_count == 0:
+            raise ValueError("training cells contain no valid historical voltage signals")
         delta = np.concatenate(delta_values)
         current = np.concatenate(current_values)
+        voltage_mean = voltage_sum / voltage_count
+        voltage_variance = max(
+            0.0,
+            voltage_square_sum / voltage_count - voltage_mean * voltage_mean,
+        )
         return cls(
             fit_cell_ids=sorted(cell_ids),
             soh_mean=float(np.mean(soh)),
@@ -86,6 +121,8 @@ class FoldScalers:
             delta_voltage_std=_safe_std(delta),
             current_mean=float(np.mean(current)),
             current_std=_safe_std(current),
+            voltage_mean=float(voltage_mean),
+            voltage_std=max(float(np.sqrt(voltage_variance)), 1.0e-8),
         )
 
     def transform_soh(self, values: np.ndarray) -> np.ndarray:
@@ -108,7 +145,12 @@ class FoldScalers:
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "FoldScalers":
-        return cls(**payload)  # type: ignore[arg-type]
+        # Checkpoints created before HS-ANP have no raw-voltage scaler. They
+        # remain valid for the unchanged SOH-only/partial-I-V baselines.
+        values = dict(payload)
+        values.setdefault("voltage_mean", 0.0)
+        values.setdefault("voltage_std", 1.0)
+        return cls(**values)  # type: ignore[arg-type]
 
     @classmethod
     def load(cls, path: str | Path) -> "FoldScalers":
@@ -145,6 +187,9 @@ class PartialIVProcessor:
             tuple[str, str, int],
             tuple[np.ndarray, np.ndarray, np.ndarray, tuple[int, ...]],
         ] = {}
+        self._context_signal_cache: dict[
+            tuple[str, str, int, float, float, float, float], ContextSignal
+        ] = {}
 
     @staticmethod
     def _cell_key(cell: CellData) -> tuple[str, str]:
@@ -161,6 +206,7 @@ class PartialIVProcessor:
             "grid_curves": len(self._grid_curve_cache),
             "references": len(self._reference_cache),
             "raw_features": len(self._raw_feature_cache),
+            "context_signals": len(self._context_signal_cache),
         }
 
     def _cycle_lookup(
@@ -296,6 +342,48 @@ class PartialIVProcessor:
             reference_cycles,
         )
         self._raw_feature_cache[cache_key] = result
+        return result
+
+    def build_context_signal(
+        self,
+        cell: CellData,
+        cycle_number: int,
+        scalers: FoldScalers,
+    ) -> ContextSignal:
+        """Build leakage-safe V/I input for one historical context cycle."""
+        cache_key = (
+            *self._cell_key(cell),
+            int(cycle_number),
+            float(scalers.voltage_mean),
+            float(scalers.voltage_std),
+            float(scalers.current_mean),
+            float(scalers.current_std),
+        )
+        cached = self._context_signal_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        by_number, _ = self._cycle_lookup(cell)
+        cycle = by_number.get(int(cycle_number))
+        if cycle is None or cycle.discharge is None:
+            raise EpisodeUnavailable(
+                f"{cell.cell_id} cycle {cycle_number}: historical V/I unavailable"
+            )
+        curve = self._interpolate_cycle(cell, cycle)
+        mask = np.asarray(curve.mask, dtype=bool)
+        voltage = np.zeros_like(curve.voltage_v, dtype=np.float64)
+        current = np.zeros_like(curve.current_a_magnitude, dtype=np.float64)
+        voltage[mask] = (
+            curve.voltage_v[mask] - scalers.voltage_mean
+        ) / scalers.voltage_std
+        current[mask] = (
+            curve.current_a_magnitude[mask] - scalers.current_mean
+        ) / scalers.current_std
+        values = np.stack([voltage, current], axis=-1).astype(np.float32)
+        result = ContextSignal(
+            values=self._readonly(values),
+            mask=self._readonly(mask.copy()),
+        )
+        self._context_signal_cache[cache_key] = result
         return result
 
     def build(

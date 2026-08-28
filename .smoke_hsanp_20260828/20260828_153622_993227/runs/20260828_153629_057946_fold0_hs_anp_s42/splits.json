@@ -1,0 +1,52 @@
+{
+  "strategy": "kfold",
+  "seed": 42,
+  "num_folds": 3,
+  "folds": [
+    {
+      "fold": 0,
+      "train_cells": [
+        "MATR_SYNTH_01",
+        "MATR_SYNTH_04",
+        "MATR_SYNTH_05"
+      ],
+      "validation_cells": [
+        "MATR_SYNTH_00"
+      ],
+      "test_cells": [
+        "MATR_SYNTH_02",
+        "MATR_SYNTH_03"
+      ]
+    },
+    {
+      "fold": 1,
+      "train_cells": [
+        "MATR_SYNTH_00",
+        "MATR_SYNTH_02",
+        "MATR_SYNTH_03"
+      ],
+      "validation_cells": [
+        "MATR_SYNTH_01"
+      ],
+      "test_cells": [
+        "MATR_SYNTH_04",
+        "MATR_SYNTH_05"
+      ]
+    },
+    {
+      "fold": 2,
+      "train_cells": [
+        "MATR_SYNTH_02",
+        "MATR_SYNTH_03",
+        "MATR_SYNTH_04"
+      ],
+      "validation_cells": [
+        "MATR_SYNTH_05"
+      ],
+      "test_cells": [
+        "MATR_SYNTH_00",
+        "MATR_SYNTH_01"
+      ]
+    }
+  ]
+}

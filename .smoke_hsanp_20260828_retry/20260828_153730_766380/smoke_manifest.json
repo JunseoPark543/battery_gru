@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "completed_at": "2026-08-28T15:38:16.563995",
+  "device": "cpu",
+  "data_root": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\synthetic_data\\MATR_synthetic",
+  "runs": {
+    "soh_only_anp": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\runs\\20260828_153740_056776_fold0_soh_only_anp_s42",
+    "partial_iv_anp": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\runs\\20260828_153741_213610_fold0_partial_iv_anp_s42",
+    "hs_anp_pooled": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\runs\\20260828_153742_449902_fold0_hs_anp_pooled_s42",
+    "hs_anp_add": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\runs\\20260828_153743_772327_fold0_hs_anp_add_s42",
+    "hs_anp": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\runs\\20260828_153745_203706_fold0_hs_anp_s42"
+  },
+  "evaluation": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\evaluation",
+  "soh_only_evaluation": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\evaluation_soh_only",
+  "hs_anp_evaluation": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\evaluation_hs_anp",
+  "comparison": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\comparison",
+  "streaming": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\streaming"
+}

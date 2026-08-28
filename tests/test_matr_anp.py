@@ -531,7 +531,156 @@ def _small_model_config() -> ModelConfig:
         mlp_layers=2,
         iv_channels=[4, 8],
         iv_embedding_dim=8,
+        hs_d_model=16,
+        hs_attention_heads=4,
+        hs_intra_layers=1,
+        hs_dropout=0.0,
+        hs_signal_target_chunk_size=2,
     )
+
+
+def test_hs_anp_shapes_attention_masks_backward_and_ablations(synthetic) -> None:
+    _, cells, _, processor, scalers, config = synthetic
+    sampler = EpisodeSampler(
+        config.episode,
+        processor,
+        scalers,
+        include_current_iv=False,
+        include_context_signal=True,
+    )
+    episodes = [
+        sampler.evaluation(cells[0], 0.3, 0.0),
+        sampler.evaluation(cells[1], 0.7, 0.0),
+    ]
+    batch = collate_episodes(episodes)
+    model_config = _small_model_config()
+    for model_name in ("hs_anp_pooled", "hs_anp_add", "hs_anp"):
+        model, spec = build_model(model_name, model_config)
+        assert spec.context_signal
+        optimizer = torch.optim.Adam(model.parameters(), lr=1.0e-3)
+        output = model(
+            batch.context_x,
+            batch.context_y,
+            batch.context_mask,
+            batch.target_x,
+            target_y=batch.target_y,
+            target_mask=batch.target_mask,
+            iv_feature=batch.iv_feature,
+            context_signal=batch.context_signal,
+            context_signal_mask=batch.context_signal_mask,
+            return_attention=True,
+        )
+        assert output["mean"].shape == batch.target_y.shape
+        assert output["H"].shape == (*batch.context_signal.shape[:3], 16)
+        assert output["hbar"].shape == (*batch.context_x.shape[:2], 16)
+        assert output["cycle_tokens"].shape == (*batch.context_x.shape[:2], 16)
+        assert output["cycle_attention"].shape == (
+            len(episodes), batch.target_x.shape[1], batch.context_x.shape[1]
+        )
+        assert output["signal_attention"].shape == (
+            len(episodes), batch.target_x.shape[1],
+            batch.context_x.shape[1], batch.context_signal.shape[2],
+        )
+        assert output["fusion_gate"].shape == (
+            len(episodes), batch.target_x.shape[1], 16
+        )
+        assert torch.allclose(
+            output["cycle_attention"].sum(dim=-1),
+            torch.ones_like(output["cycle_attention"].sum(dim=-1)),
+            atol=1.0e-6,
+        )
+        if model_name != "hs_anp_pooled":
+            beta_sum = output["signal_attention"].sum(dim=-1)
+            signal_present = (
+                batch.context_signal_mask & batch.context_mask.unsqueeze(-1)
+            ).any(dim=-1)
+            expected = signal_present[:, None, :].expand_as(beta_sum).to(beta_sum.dtype)
+            assert torch.allclose(beta_sum, expected, atol=1.0e-5)
+        if model_name == "hs_anp":
+            assert torch.all((output["fusion_gate"] > 0) & (output["fusion_gate"] < 1))
+        else:
+            assert torch.count_nonzero(output["fusion_gate"]) == 0
+        losses = anp_elbo_loss(output, batch.target_y, batch.target_mask, 0.5)
+        assert torch.isfinite(losses["loss"])
+        losses["loss"].backward()
+        assert all(
+            parameter.grad is None or torch.isfinite(parameter.grad).all()
+            for parameter in model.parameters()
+        )
+        optimizer.step()
+
+
+def test_hs_anp_padding_and_future_signal_leakage_guard(synthetic) -> None:
+    _, cells, _, processor, scalers, config = synthetic
+    sampler = EpisodeSampler(
+        config.episode,
+        processor,
+        scalers,
+        include_current_iv=False,
+        include_context_signal=True,
+    )
+    episode = sampler.evaluation(cells[0], 0.5, 0.0)
+    # Remove every target/future discharge curve. The HS episode must remain
+    # identical because only historical context-cycle V/I is legal input.
+    target_start = int(np.searchsorted(cells[0].cycle_numbers, episode.current_cycle))
+    stripped_cell = replace(
+        cells[0],
+        cycles=tuple(
+            cycle if index < target_start else replace(cycle, discharge=None)
+            for index, cycle in enumerate(cells[0].cycles)
+        ),
+    )
+    fresh_processor = PartialIVProcessor(config.q_grid, config.data)
+    stripped_sampler = EpisodeSampler(
+        config.episode,
+        fresh_processor,
+        scalers,
+        include_current_iv=False,
+        include_context_signal=True,
+    )
+    stripped = stripped_sampler.evaluation(stripped_cell, 0.5, 1.0)
+    assert np.array_equal(episode.context_signal_mask, stripped.context_signal_mask)
+    assert np.allclose(episode.context_signal, stripped.context_signal)
+    assert np.count_nonzero(stripped.iv_feature) == 0
+
+    batch = collate_episodes([
+        sampler.evaluation(cells[0], 0.3, 0.0),
+        sampler.evaluation(cells[1], 0.7, 0.0),
+    ])
+    model, _ = build_model("hs_anp", _small_model_config())
+    model.eval()
+    with torch.no_grad():
+        base = model(
+            batch.context_x,
+            batch.context_y,
+            batch.context_mask,
+            batch.target_x,
+            iv_feature=batch.iv_feature,
+            context_signal=batch.context_signal,
+            context_signal_mask=batch.context_signal_mask,
+            sample_latent=False,
+        )["mean"]
+        padded_x = batch.context_x.clone()
+        padded_y = batch.context_y.clone()
+        padded_signal = batch.context_signal.clone()
+        padded_x[~batch.context_mask] = 999.0
+        padded_y[~batch.context_mask] = -999.0
+        invalid_signal = ~(
+            batch.context_signal_mask & batch.context_mask.unsqueeze(-1)
+        )
+        padded_signal[invalid_signal] = 777.0
+        changed_legacy_target_iv = torch.full_like(batch.iv_feature, 555.0)
+        changed = model(
+            padded_x,
+            padded_y,
+            batch.context_mask,
+            batch.target_x,
+            iv_feature=changed_legacy_target_iv,
+            context_signal=padded_signal,
+            context_signal_mask=batch.context_signal_mask,
+            sample_latent=False,
+        )["mean"]
+    assert torch.allclose(base, changed, atol=1.0e-6)
 
 
 def test_models_loss_padding_and_masked_iv(synthetic) -> None:

@@ -70,6 +70,8 @@ def streaming_run(
         config.episode,
         PartialIVProcessor(config.q_grid, config.data),
         scalers,
+        include_current_iv=not rebuilt.context_signal,
+        include_context_signal=rebuilt.context_signal,
     )
     sample_count = mc_samples or config.evaluation.mc_samples
     destination = (

@@ -18,12 +18,18 @@ import torch
 from torch import nn
 from tqdm.auto import tqdm
 
-from .config import ExperimentConfig, load_config, resolve_data_root, save_config
+from .config import (
+    ExperimentConfig,
+    complete_model_config_dict,
+    load_config,
+    resolve_data_root,
+    save_config,
+)
 from .data import CellData, load_dataset
 from .episodes import EpisodeSampler, collate_episodes
 from .features import EpisodeUnavailable, FoldScalers, PartialIVProcessor
 from .losses import anp_elbo_loss
-from .model import MODEL_NAMES, ModelSpec, build_model
+from .model import HS_MODEL_NAMES, MODEL_NAMES, ModelSpec, build_model
 from .runtime import configure_logger, git_commit, resolve_device, seed_everything, write_json
 from .splits import FoldSplit, make_splits, save_splits
 
@@ -153,6 +159,8 @@ def _validation_rmse(
                     batch.context_mask,
                     batch.target_x,
                     iv_feature=batch.iv_feature,
+                    context_signal=batch.context_signal,
+                    context_signal_mask=batch.context_signal_mask,
                     sample_latent=False,
                 )
                 predicted = sampler.scalers.inverse_soh(
@@ -212,7 +220,15 @@ def train_run(
     )
     if set(scalers.fit_cell_ids) != set(split.train_cells):
         raise RuntimeError("scaler fit cells do not exactly equal the training split")
-    sampler = EpisodeSampler(resolved.episode, processor, scalers)
+    sampler = EpisodeSampler(
+        resolved.episode,
+        processor,
+        scalers,
+        # Preserve the pre-existing baseline episode construction exactly.
+        # Only HS variants disable current/target-cycle I-V access.
+        include_current_iv=model_name not in HS_MODEL_NAMES,
+        include_context_signal=model_name in HS_MODEL_NAMES,
+    )
 
     if resume is not None:
         checkpoint_path = Path(resume).resolve()
@@ -223,7 +239,11 @@ def train_run(
         saved_config = payload["config"]
         current_config = resolved.to_dict()
         for section in ("seed", "data", "q_grid", "split", "episode", "model"):
-            if saved_config.get(section) != current_config.get(section):
+            saved_section = saved_config.get(section)
+            current_section = current_config.get(section)
+            if section == "model" and isinstance(saved_section, dict):
+                saved_section = complete_model_config_dict(saved_section)
+            if saved_section != current_section:
                 raise ValueError(f"resume config section '{section}' differs from checkpoint")
         saved_training = dict(saved_config["training"])
         current_training = dict(current_config["training"])
@@ -234,7 +254,12 @@ def train_run(
             raise ValueError("resume training config differs from checkpoint (except max_steps)")
         if payload["fold_split"] != asdict(split):
             raise ValueError("resume checkpoint cell split mismatch")
-        if payload["scalers"] != scalers.to_dict():
+        saved_scalers = dict(payload["scalers"])
+        current_scalers = scalers.to_dict()
+        for field in ("voltage_mean", "voltage_std"):
+            if field not in saved_scalers:
+                current_scalers.pop(field, None)
+        if saved_scalers != current_scalers:
             raise ValueError("resume checkpoint scaler values or training cells mismatch")
         resolved_hidden = int(payload["model_spec"]["hidden_dim"])
     else:
@@ -343,11 +368,14 @@ def train_run(
     )
     logger.info(
         "scalers soh_mean=%.7g soh_std=%.7g delta_v_mean=%.7g delta_v_std=%.7g "
-        "current_mean=%.7g current_std=%.7g fit_cells=%d",
+        "voltage_mean=%.7g voltage_std=%.7g current_mean=%.7g current_std=%.7g "
+        "fit_cells=%d",
         scalers.soh_mean,
         scalers.soh_std,
         scalers.delta_voltage_mean,
         scalers.delta_voltage_std,
+        scalers.voltage_mean,
+        scalers.voltage_std,
         scalers.current_mean,
         scalers.current_std,
         len(scalers.fit_cell_ids),
@@ -374,10 +402,11 @@ def train_run(
         )
     cache = processor.cache_info()
     logger.info(
-        "feature_cache grid_curves=%d references=%d raw_features=%d",
+        "feature_cache grid_curves=%d references=%d raw_features=%d context_signals=%d",
         cache["grid_curves"],
         cache["references"],
         cache["raw_features"],
+        cache["context_signals"],
     )
 
     began = time.perf_counter()
@@ -434,6 +463,8 @@ def train_run(
                 target_y=batch.target_y,
                 target_mask=batch.target_mask,
                 iv_feature=batch.iv_feature,
+                context_signal=batch.context_signal,
+                context_signal_mask=batch.context_signal_mask,
             )
         # Keep the network forward in AMP, but evaluate log/std/division terms
         # of the probabilistic ELBO in float32 for numerical stability.

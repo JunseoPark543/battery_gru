@@ -1,0 +1,59 @@
+{
+  "status": "completed",
+  "started_at_utc": "2026-08-28T06:37:46.754523+00:00",
+  "dataset": "MATR",
+  "algorithm": "attentive_neural_process",
+  "model": "partial_iv_anp",
+  "model_spec": {
+    "model_name": "partial_iv_anp",
+    "hidden_dim": 16,
+    "latent_dim": 8,
+    "attention_heads": 4,
+    "conditional_iv": true,
+    "parameter_count": 6882,
+    "parameter_match_target": null,
+    "parameter_match_relative_error": null,
+    "context_signal": false,
+    "signal_cross_attention": false,
+    "gated_fusion": false
+  },
+  "fold": 0,
+  "split": {
+    "fold": 0,
+    "train_cells": [
+      "MATR_SYNTH_01",
+      "MATR_SYNTH_04",
+      "MATR_SYNTH_05"
+    ],
+    "validation_cells": [
+      "MATR_SYNTH_00"
+    ],
+    "test_cells": [
+      "MATR_SYNTH_02",
+      "MATR_SYNTH_03"
+    ]
+  },
+  "scaler_fit_cells": [
+    "MATR_SYNTH_01",
+    "MATR_SYNTH_04",
+    "MATR_SYNTH_05"
+  ],
+  "device": "cpu",
+  "seed": 42,
+  "git_commit": "a69563f65fbf92162278b2c601a1af8bf349eaab",
+  "data_root": "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\synthetic_data\\MATR_synthetic",
+  "cuda_available": false,
+  "torch_cuda_version": null,
+  "feature_cache": {
+    "grid_curves": 84,
+    "references": 6,
+    "raw_features": 57,
+    "context_signals": 0
+  },
+  "completed_at_utc": "2026-08-28T06:37:47.364065+00:00",
+  "last_step": 2,
+  "successful_optimizer_updates": 2,
+  "amp_overflow_skips": 0,
+  "best_step": 2,
+  "best_validation_rmse": 0.026907878258771094
+}

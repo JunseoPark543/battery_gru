@@ -1,0 +1,3 @@
+step,cell_id,batch,validation_rmse
+1,MATR_SYNTH_00,unknown,0.0269399
+2,MATR_SYNTH_00,unknown,0.02690788

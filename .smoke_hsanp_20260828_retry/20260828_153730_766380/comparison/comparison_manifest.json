@@ -1,0 +1,17 @@
+{
+  "status": "completed",
+  "completed_at_utc": "2026-08-28T06:38:14.617866+00:00",
+  "sources": [
+    "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\evaluation_soh_only\\per_cell_metrics.csv",
+    "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\evaluation\\per_cell_metrics.csv",
+    "C:\\Users\\pc\\Desktop\\SIA LAB\\battery_gru\\.smoke_hsanp_20260828_retry\\20260828_153730_766380\\evaluation_hs_anp\\per_cell_metrics.csv"
+  ],
+  "models": [
+    "hs_anp",
+    "partial_iv_anp",
+    "soh_only_anp"
+  ],
+  "folds": [
+    0
+  ]
+}
