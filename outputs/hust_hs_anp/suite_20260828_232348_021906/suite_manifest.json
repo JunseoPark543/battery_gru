@@ -1,5 +1,5 @@
 {
-  "status": "running",
+  "status": "completed",
   "started_at_utc": "2026-08-28T14:23:48.022030+00:00",
   "dataset": "HUST",
   "requested_models": [
@@ -26,7 +26,7 @@
   "max_steps_override": null,
   "batch_size_override": null,
   "evaluate": true,
-  "comparison_directory": null,
+  "comparison_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/suite_20260828_232348_021906/model_comparison",
   "runs": [
     {
       "model": "soh_only_anp",
@@ -47,10 +47,19 @@
     {
       "model": "hs_anp_add",
       "fold": 0,
-      "status": "running",
-      "run_directory": null,
-      "best_checkpoint": null,
-      "evaluation_directory": null
+      "status": "completed",
+      "run_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260828_235926_588076_fold0_hs_anp_add_s42",
+      "best_checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260828_235926_588076_fold0_hs_anp_add_s42/checkpoints/best.pt",
+      "evaluation_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260828_235926_588076_fold0_hs_anp_add_s42/evaluation/best"
+    },
+    {
+      "model": "hs_anp",
+      "fold": 0,
+      "status": "completed",
+      "run_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260829_004723_790045_fold0_hs_anp_s42",
+      "best_checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260829_004723_790045_fold0_hs_anp_s42/checkpoints/best.pt",
+      "evaluation_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260829_004723_790045_fold0_hs_anp_s42/evaluation/best"
     }
-  ]
+  ],
+  "completed_at_utc": "2026-08-28T16:22:45.735187+00:00"
 }

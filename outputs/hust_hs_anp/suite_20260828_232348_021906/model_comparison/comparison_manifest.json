@@ -1,0 +1,19 @@
+{
+  "status": "completed",
+  "completed_at_utc": "2026-08-28T16:22:45.734776+00:00",
+  "sources": [
+    "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260828_232418_048412_fold0_soh_only_anp_s42/evaluation/best/per_cell_metrics.csv",
+    "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260828_232723_891513_fold0_hs_anp_pooled_s42/evaluation/best/per_cell_metrics.csv",
+    "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260828_235926_588076_fold0_hs_anp_add_s42/evaluation/best/per_cell_metrics.csv",
+    "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260829_004723_790045_fold0_hs_anp_s42/evaluation/best/per_cell_metrics.csv"
+  ],
+  "models": [
+    "hs_anp",
+    "hs_anp_add",
+    "hs_anp_pooled",
+    "soh_only_anp"
+  ],
+  "folds": [
+    0
+  ]
+}
