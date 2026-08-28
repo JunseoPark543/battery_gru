@@ -1,0 +1,48 @@
+{
+  "status": "running",
+  "started_at_utc": "2026-08-28T14:23:48.022030+00:00",
+  "dataset": "HUST",
+  "requested_models": [
+    "A0",
+    "A1",
+    "A2",
+    "A3"
+  ],
+  "models": [
+    "soh_only_anp",
+    "hs_anp_pooled",
+    "hs_anp_add",
+    "hs_anp"
+  ],
+  "ablation_aliases": {
+    "A0": "soh_only_anp",
+    "A1": "hs_anp_pooled",
+    "A2": "hs_anp_add",
+    "A3": "hs_anp"
+  },
+  "folds": [
+    0
+  ],
+  "max_steps_override": null,
+  "batch_size_override": null,
+  "evaluate": true,
+  "comparison_directory": null,
+  "runs": [
+    {
+      "model": "soh_only_anp",
+      "fold": 0,
+      "status": "completed",
+      "run_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260828_232418_048412_fold0_soh_only_anp_s42",
+      "best_checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260828_232418_048412_fold0_soh_only_anp_s42/checkpoints/best.pt",
+      "evaluation_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260828_232418_048412_fold0_soh_only_anp_s42/evaluation/best"
+    },
+    {
+      "model": "hs_anp_pooled",
+      "fold": 0,
+      "status": "running",
+      "run_directory": null,
+      "best_checkpoint": null,
+      "evaluation_directory": null
+    }
+  ]
+}
