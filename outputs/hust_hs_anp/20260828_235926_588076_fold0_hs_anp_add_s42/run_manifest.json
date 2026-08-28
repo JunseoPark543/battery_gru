@@ -1,11 +1,11 @@
 {
-  "status": "completed",
-  "started_at_utc": "2026-08-28T14:27:23.918280+00:00",
+  "status": "running",
+  "started_at_utc": "2026-08-28T14:59:26.615867+00:00",
   "dataset": "HUST",
   "algorithm": "attentive_neural_process",
-  "model": "hs_anp_pooled",
+  "model": "hs_anp_add",
   "model_spec": {
-    "model_name": "hs_anp_pooled",
+    "model_name": "hs_anp_add",
     "hidden_dim": 64,
     "latent_dim": 32,
     "attention_heads": 4,
@@ -14,7 +14,7 @@
     "parameter_match_target": null,
     "parameter_match_relative_error": null,
     "context_signal": true,
-    "signal_cross_attention": false,
+    "signal_cross_attention": true,
     "gated_fusion": false
   },
   "fold": 0,
@@ -157,7 +157,7 @@
   ],
   "device": "cuda",
   "seed": 42,
-  "git_commit": "f9a5ef503ce376c7195b796d28989a329e45e4df",
+  "git_commit": "20a14d8e592ea16bdb720f0f8b2dc46f6d350714",
   "data_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/HUST",
   "cuda_available": true,
   "torch_cuda_version": "13.0",
@@ -171,11 +171,5 @@
   "cuda_device_capability": [
     12,
     0
-  ],
-  "completed_at_utc": "2026-08-28T14:57:47.783580+00:00",
-  "last_step": 5500,
-  "successful_optimizer_updates": 5496,
-  "amp_overflow_skips": 4,
-  "best_step": 500,
-  "best_validation_rmse": 0.02451584303833583
+  ]
 }

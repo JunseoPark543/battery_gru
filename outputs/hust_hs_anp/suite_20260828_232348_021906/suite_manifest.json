@@ -39,6 +39,14 @@
     {
       "model": "hs_anp_pooled",
       "fold": 0,
+      "status": "completed",
+      "run_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260828_232723_891513_fold0_hs_anp_pooled_s42",
+      "best_checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260828_232723_891513_fold0_hs_anp_pooled_s42/checkpoints/best.pt",
+      "evaluation_directory": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/hust_hs_anp/20260828_232723_891513_fold0_hs_anp_pooled_s42/evaluation/best"
+    },
+    {
+      "model": "hs_anp_add",
+      "fold": 0,
       "status": "running",
       "run_directory": null,
       "best_checkpoint": null,
