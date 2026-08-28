@@ -1,0 +1,86 @@
+seed: 42
+device: cuda
+paths:
+  data_root: data/MATR
+  output_root: outputs/matr_hs_anp
+data:
+  dataset: MATR
+  file_globs:
+  - '**/*.pkl'
+  minimum_valid_cycles: 30
+  minimum_discharge_points: 16
+  short_signal_threshold: 32
+  reference_cycles:
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  minimum_reference_cycles: 3
+q_grid:
+  minimum: 0.0
+  maximum: 0.8
+  num_points: 256
+split:
+  strategy: kfold
+  num_folds: 5
+  validation_fraction: 0.2
+  seed: 42
+episode:
+  minimum_current_cycle_position: 20
+  training_alpha_range:
+  - 0.2
+  - 0.8
+  evaluation_alphas:
+  - 0.3
+  - 0.5
+  - 0.7
+  beta_values:
+  - 0.0
+  min_context_points: 8
+  max_context_points: 128
+  max_target_points: 128
+model:
+  hidden_dim: 64
+  wide_hidden_min: 68
+  wide_hidden_max: 192
+  latent_dim: 32
+  attention_heads: 4
+  mlp_layers: 3
+  iv_channels:
+  - 16
+  - 32
+  - 32
+  iv_embedding_dim: 32
+  minimum_std: 0.001
+  hs_d_model: 128
+  hs_attention_heads: 4
+  hs_intra_layers: 2
+  hs_dropout: 0.1
+  hs_signal_target_chunk_size: 16
+  hs_signal_channels:
+  - voltage
+  - current
+training:
+  optimizer: adam
+  learning_rate: 0.0001
+  max_steps: 25000
+  batch_size: 16
+  gradient_clip_norm: 1.0
+  kl_warmup_steps: 5000
+  validation_interval: 500
+  validation_episodes_per_cell: 3
+  early_stopping_patience: 10
+  checkpoint_interval: 500
+  log_interval: 10
+  use_amp: true
+  amp_initial_scale: 1024.0
+  max_consecutive_amp_overflows: 20
+  deterministic: true
+evaluation:
+  mc_samples: 50
+  interval_level: 0.95
+  inference_repeats: 20
+  inference_warmup: 3
+  trajectory_plot_cell: null
