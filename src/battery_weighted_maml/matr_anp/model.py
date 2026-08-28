@@ -8,6 +8,7 @@ from typing import Any
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.utils.checkpoint import checkpoint
 
 from .config import ModelConfig
 
@@ -132,6 +133,8 @@ class IntraCycleSignalEncoder(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
         dimension = config.hs_d_model
+        self.cycle_chunk_size = config.hs_intra_cycle_chunk_size
+        self.gradient_checkpointing = config.hs_gradient_checkpointing
         self.input_projection = nn.Linear(2, dimension)
         layer = nn.TransformerEncoderLayer(
             d_model=dimension,
@@ -157,23 +160,53 @@ class IntraCycleSignalEncoder(nn.Module):
         batch, context, length, _ = signal.shape
         flat_signal = signal.reshape(batch * context, length, 2)
         flat_mask = mask.reshape(batch * context, length)
-        present = flat_mask.any(dim=1)
-        safe_mask = flat_mask.clone()
-        safe_mask[~present, 0] = True
-        masked_signal = flat_signal * flat_mask.unsqueeze(-1).to(signal.dtype)
-        tokens = self.input_projection(masked_signal)
-        tokens = tokens + _sinusoidal_positions(
+        positions = _sinusoidal_positions(
             length,
-            tokens.shape[-1],
-            device=tokens.device,
-            dtype=tokens.dtype,
+            self.input_projection.out_features,
+            device=signal.device,
+            dtype=signal.dtype,
         ).unsqueeze(0)
-        encoded = self.encoder(tokens, src_key_padding_mask=~safe_mask)
-        encoded = self.output_norm(encoded)
-        encoded = encoded * flat_mask.unsqueeze(-1).to(encoded.dtype)
-        denominator = flat_mask.sum(dim=1, keepdim=True).clamp_min(1).to(encoded.dtype)
-        pooled = encoded.sum(dim=1) / denominator
-        pooled = pooled * present.unsqueeze(-1).to(pooled.dtype)
+        encoded_chunks: list[torch.Tensor] = []
+        pooled_chunks: list[torch.Tensor] = []
+        # Self-attention is independent between cycles. Chunking this flattened
+        # axis gives the same model operation while avoiding an attention
+        # workspace proportional to B*C*heads*L^2 (about 1 GiB for the default
+        # B=16, C=128, heads=4, L=256 even in fp16).
+        for start in range(0, batch * context, self.cycle_chunk_size):
+            stop = min(start + self.cycle_chunk_size, batch * context)
+            chunk_signal = flat_signal[start:stop]
+            chunk_mask = flat_mask[start:stop]
+            present = chunk_mask.any(dim=1)
+            safe_mask = chunk_mask.clone()
+            safe_mask[~present, 0] = True
+            masked_signal = chunk_signal * chunk_mask.unsqueeze(-1).to(signal.dtype)
+            tokens = self.input_projection(masked_signal)
+            tokens = tokens + positions.to(dtype=tokens.dtype)
+            padding_mask = ~safe_mask
+            if self.training and self.gradient_checkpointing and torch.is_grad_enabled():
+                encoded = checkpoint(
+                    lambda inputs, key_padding_mask: self.encoder(
+                        inputs,
+                        src_key_padding_mask=key_padding_mask,
+                    ),
+                    tokens,
+                    padding_mask,
+                    use_reentrant=False,
+                    preserve_rng_state=True,
+                )
+            else:
+                encoded = self.encoder(tokens, src_key_padding_mask=padding_mask)
+            encoded = self.output_norm(encoded)
+            encoded = encoded * chunk_mask.unsqueeze(-1).to(encoded.dtype)
+            denominator = (
+                chunk_mask.sum(dim=1, keepdim=True).clamp_min(1).to(encoded.dtype)
+            )
+            pooled = encoded.sum(dim=1) / denominator
+            pooled = pooled * present.unsqueeze(-1).to(pooled.dtype)
+            encoded_chunks.append(encoded)
+            pooled_chunks.append(pooled)
+        encoded = torch.cat(encoded_chunks, dim=0)
+        pooled = torch.cat(pooled_chunks, dim=0)
         return (
             encoded.reshape(batch, context, length, -1),
             pooled.reshape(batch, context, -1),

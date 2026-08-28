@@ -534,6 +534,8 @@ def _small_model_config() -> ModelConfig:
         hs_d_model=16,
         hs_attention_heads=4,
         hs_intra_layers=1,
+        hs_intra_cycle_chunk_size=2,
+        hs_gradient_checkpointing=True,
         hs_dropout=0.0,
         hs_signal_target_chunk_size=2,
     )
@@ -681,6 +683,57 @@ def test_hs_anp_padding_and_future_signal_leakage_guard(synthetic) -> None:
             sample_latent=False,
         )["mean"]
     assert torch.allclose(base, changed, atol=1.0e-6)
+
+
+def test_hs_intra_cycle_chunking_preserves_eval_output(synthetic) -> None:
+    _, cells, _, processor, scalers, config = synthetic
+    sampler = EpisodeSampler(
+        config.episode,
+        processor,
+        scalers,
+        include_current_iv=False,
+        include_context_signal=True,
+    )
+    batch = collate_episodes([
+        sampler.evaluation(cells[0], 0.5, 0.0),
+        sampler.evaluation(cells[1], 0.5, 0.0),
+    ])
+    chunked_config = replace(
+        _small_model_config(),
+        hs_intra_cycle_chunk_size=2,
+        hs_gradient_checkpointing=True,
+    )
+    unchunked_config = replace(
+        chunked_config,
+        hs_intra_cycle_chunk_size=10_000,
+        hs_gradient_checkpointing=False,
+    )
+    chunked, _ = build_model("hs_anp", chunked_config)
+    unchunked, _ = build_model("hs_anp", unchunked_config)
+    unchunked.load_state_dict(chunked.state_dict())
+    chunked.eval()
+    unchunked.eval()
+    arguments = (
+        batch.context_x,
+        batch.context_y,
+        batch.context_mask,
+        batch.target_x,
+    )
+    keywords = {
+        "iv_feature": batch.iv_feature,
+        "context_signal": batch.context_signal,
+        "context_signal_mask": batch.context_signal_mask,
+        "sample_latent": False,
+        "return_attention": True,
+    }
+    with torch.no_grad():
+        chunked_output = chunked(*arguments, **keywords)
+        unchunked_output = unchunked(*arguments, **keywords)
+    for key in (
+        "mean", "std", "H", "hbar", "cycle_attention",
+        "signal_attention", "fusion_gate",
+    ):
+        assert torch.allclose(chunked_output[key], unchunked_output[key], atol=1.0e-6)
 
 
 def test_models_loss_padding_and_masked_iv(synthetic) -> None:

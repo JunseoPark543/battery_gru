@@ -48,6 +48,8 @@ model:
   hs_d_model: 128
   hs_attention_heads: 4
   hs_intra_layers: 2
+  hs_intra_cycle_chunk_size: 64
+  hs_gradient_checkpointing: true
   hs_dropout: 0.1
   hs_signal_target_chunk_size: 16
   hs_signal_channels: [voltage, current]

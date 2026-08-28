@@ -51,6 +51,8 @@ def smoke_config(
     config.model.hs_d_model = 16
     config.model.hs_attention_heads = 4
     config.model.hs_intra_layers = 1
+    config.model.hs_intra_cycle_chunk_size = 2
+    config.model.hs_gradient_checkpointing = True
     config.model.hs_dropout = 0.0
     config.model.hs_signal_target_chunk_size = 4
     config.training.learning_rate = 5.0e-4

@@ -69,6 +69,8 @@ class ModelConfig:
     hs_d_model: int = 128
     hs_attention_heads: int = 4
     hs_intra_layers: int = 2
+    hs_intra_cycle_chunk_size: int = 64
+    hs_gradient_checkpointing: bool = True
     hs_dropout: float = 0.1
     hs_signal_target_chunk_size: int = 16
     hs_signal_channels: list[str] = field(
@@ -173,8 +175,12 @@ class ExperimentConfig:
             raise ValueError(
                 "hs_d_model must be positive and divisible by hs_attention_heads"
             )
-        if model.hs_intra_layers <= 0 or model.hs_signal_target_chunk_size <= 0:
-            raise ValueError("HS-ANP layer count and target chunk size must be positive")
+        if (
+            model.hs_intra_layers <= 0
+            or model.hs_intra_cycle_chunk_size <= 0
+            or model.hs_signal_target_chunk_size <= 0
+        ):
+            raise ValueError("HS-ANP layer and chunk sizes must be positive")
         if not 0.0 <= model.hs_dropout < 1.0:
             raise ValueError("hs_dropout must lie in [0,1)")
         if model.hs_signal_channels != ["voltage", "current"]:
