@@ -1,0 +1,22 @@
+{
+  "status": "completed",
+  "completed_at_utc": "2026-08-29T16:42:51.844980+00:00",
+  "checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/horizon_lifetime_iv_anp/20260830_013634_615505_f0_life_iv_anp_s42/checkpoints/best.pt",
+  "horizons": [
+    100,
+    120,
+    140,
+    160,
+    180,
+    200,
+    220,
+    240,
+    260,
+    280,
+    300
+  ],
+  "prediction_target": "lifetime",
+  "rul_formula": "predicted_lifetime - observation_horizon",
+  "query_label_used_as_input": false,
+  "model_parameter_update": false
+}
