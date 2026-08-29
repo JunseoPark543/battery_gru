@@ -22,6 +22,19 @@ All normalization statistics are fitted on the train split only. The
 validation and test cells never enter context. Evaluation and streaming do not
 update model parameters.
 
+## Paired-horizon consistency loss
+
+The optional experiment samples the same context and query cells at an early
+horizon `k` and a later horizon `k+gap`. Both horizons keep the ordinary
+lifetime ELBO. The early inference prediction is also trained toward the
+detached later inference prediction:
+
+`L = 0.5*(ELBO_k + ELBO_k+gap) + lambda*Huber(mu_k, stopgrad(mu_k+gap))`.
+
+Only prior/inference predictions are compared, so query lifetime labels cannot
+leak into this term. `lambda` is linearly warmed up. The original configuration
+keeps `paired_horizon_training: false` and remains the unchanged baseline.
+
 ## Train and evaluate
 
 ```bash
@@ -52,4 +65,19 @@ python -m battery_weighted_maml.horizon_lifetime_iv_anp.streaming \
   --device cuda \
   --cell MATR_b1c14 \
   --horizons 100 120 140 160 180 200 220 240 260 280 300
+```
+
+## Sequential consistency ablation
+
+On one GPU, run variants sequentially to avoid out-of-memory errors. The suite
+contains a compute-matched paired control (`lambda=0`), three loss weights, and
+one wider horizon gap. It evaluates each best checkpoint and writes
+`suite_summary.csv` plus `suite_comparison.png`.
+
+```bash
+python -m battery_weighted_maml.horizon_lifetime_iv_anp.run_consistency_suite \
+  --config configs/matr_horizon_lifetime_iv_anp_consistency.yaml \
+  --fold 0 \
+  --device cuda \
+  --baseline-run outputs/horizon_lifetime_iv_anp/BASELINE_RUN
 ```

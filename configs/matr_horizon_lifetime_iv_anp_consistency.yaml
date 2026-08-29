@@ -3,7 +3,7 @@ device: auto
 
 paths:
   data_root: data/MATR
-  output_root: outputs/horizon_lifetime_iv_anp
+  output_root: outputs/horizon_lifetime_iv_anp_consistency
 
 data:
   dataset: MATR
@@ -16,8 +16,6 @@ data:
   lifetime_source: label_file
   label_path: "data/Life labels/MATR_labels.json"
 
-# q is discharged capacity / nominal capacity. Values beyond a curve endpoint
-# are zero padded and masked, never flat-filled or extrapolated.
 q_grid:
   minimum: 0.0
   maximum: 1.2
@@ -30,7 +28,6 @@ split:
   seed: 42
 
 task:
-  # One task uses one shared observation horizon for all context/query cells.
   horizons: [100, 120, 140, 160, 180, 200, 220, 240, 260, 280, 300]
   context_size_min: 8
   context_size_max: 16
@@ -39,8 +36,6 @@ task:
   max_resample_attempts: 100
 
 model:
-  # Raw input remains 256 points. Eight adjacent points form one learned patch,
-  # so within-cycle self-attention receives 32 tokens.
   curve_input_dim: 3
   curve_d_model: 48
   curve_attention_heads: 4
@@ -68,9 +63,8 @@ training:
   log_interval: 10
   use_amp: true
   deterministic: true
-  paired_horizon_training: false
-  # Zero preserves the original single-horizon baseline exactly.
-  consistency_weight: 0.0
+  paired_horizon_training: true
+  consistency_weight: 0.1
   consistency_horizon_gap: 20
   consistency_warmup_steps: 1000
   consistency_huber_beta: 0.25

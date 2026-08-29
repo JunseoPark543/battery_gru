@@ -15,6 +15,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 import torch
+from torch.nn import functional as F
 from tqdm.auto import tqdm
 
 from battery_weighted_maml.matr_anp.runtime import (
@@ -26,7 +27,13 @@ from battery_weighted_maml.matr_anp.runtime import (
 )
 from battery_weighted_maml.matr_anp.splits import FoldSplit, make_splits, save_splits
 
-from .config import LifetimeIVConfig, load_config, resolve_data_root, save_config
+from .config import (
+    LifetimeIVConfig,
+    TrainingConfig,
+    load_config,
+    resolve_data_root,
+    save_config,
+)
 from .data import (
     LabeledCell,
     LifetimeIVPrefixStore,
@@ -207,8 +214,12 @@ def train_run(
     payload = None
     if resume is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        mode = "base"
+        if resolved.training.paired_horizon_training:
+            weight = f"{resolved.training.consistency_weight:g}".replace(".", "p")
+            mode = f"pair-w{weight}-g{resolved.training.consistency_horizon_gap}"
         run_dir = Path(output_root or resolved.paths.output_root).resolve() / (
-            f"{timestamp}_f{fold}_life_iv_anp_s{resolved.seed}"
+            f"{timestamp}_f{fold}_life_iv_{mode}_s{resolved.seed}"
         )
     else:
         checkpoint_path = Path(resume).resolve()
@@ -223,6 +234,15 @@ def train_run(
         if payload["scalers"] != scalers.to_dict():
             raise ValueError("resume train-only scalers differ")
         saved, current = copy.deepcopy(payload["config"]), resolved.to_dict()
+        # Checkpoints created before consistency training existed represent the
+        # exact weight=0 baseline and remain resumable with the baseline config.
+        defaults = asdict(TrainingConfig())
+        for key in (
+            "paired_horizon_training",
+            "consistency_weight", "consistency_horizon_gap",
+            "consistency_warmup_steps", "consistency_huber_beta",
+        ):
+            saved["training"].setdefault(key, defaults[key])
         saved["training"].pop("max_steps", None)
         current["training"].pop("max_steps", None)
         if saved != current:
@@ -268,6 +288,14 @@ def train_run(
         "prediction_target": "lifetime",
         "input_features": ["cycle", "soh", "voltage_q_256", "current_q_256"],
         "delta_soh_used": False,
+        "consistency": {
+            "paired_horizon_training": resolved.training.paired_horizon_training,
+            "weight": resolved.training.consistency_weight,
+            "horizon_gap": resolved.training.consistency_horizon_gap,
+            "warmup_steps": resolved.training.consistency_warmup_steps,
+            "huber_beta": resolved.training.consistency_huber_beta,
+            "teacher": "later_prior_mean_stop_gradient",
+        },
         "fold": fold,
         "device": str(device),
         "model_spec": spec.to_dict(),
@@ -278,12 +306,19 @@ def train_run(
     write_json(run_dir / "run_manifest.json", manifest)
     logger.info(
         "start fold=%d device=%s parameters=%d train=%d validation=%d "
-        "horizons=%s q_points=%d context=[%d,%d] query=%d target=lifetime delta_soh=false",
+        "horizons=%s q_points=%d context=[%d,%d] query=%d target=lifetime "
+        "delta_soh=false paired_horizons=%s consistency_weight=%.5g "
+        "consistency_gap=%d",
         fold, device, spec.parameter_count, len(train_cells), len(validation_cells),
         resolved.task.horizons, resolved.q_grid.num_points,
         resolved.task.context_size_min, resolved.task.context_size_max,
         resolved.task.query_size,
+        resolved.training.paired_horizon_training,
+        resolved.training.consistency_weight,
+        resolved.training.consistency_horizon_gap,
     )
+    use_paired_horizons = resolved.training.paired_horizon_training
+    use_consistency = resolved.training.consistency_weight > 0
     logger.info(
         "train_scalers cycle=%.5g soh=%.5g+-%.5g voltage=%.5g+-%.5g "
         "current=%.5g+-%.5g lifetime=%.5g+-%.5g",
@@ -300,23 +335,98 @@ def train_run(
         desc=f"MATR-life-IV-ANP-f{fold}", unit="step",
     )
     for step in progress:
-        tasks = [
-            sampler.sample_training(train_cells, rng)
-            for _ in range(resolved.training.task_batch_size)
-        ]
-        batch = collate_tasks(tasks).to(device)
+        if use_paired_horizons:
+            pairs = [
+                sampler.sample_training_pair(
+                    train_cells, rng,
+                    resolved.training.consistency_horizon_gap,
+                )
+                for _ in range(resolved.training.task_batch_size)
+            ]
+            early_tasks = [pair[0] for pair in pairs]
+            late_tasks = [pair[1] for pair in pairs]
+            early_batch = collate_tasks(early_tasks).to(device)
+            late_batch = collate_tasks(late_tasks).to(device)
+            tasks = early_tasks
+        else:
+            tasks = [
+                sampler.sample_training(train_cells, rng)
+                for _ in range(resolved.training.task_batch_size)
+            ]
+            early_batch = collate_tasks(tasks).to(device)
+            late_batch = None
         warmup = resolved.training.kl_warmup_steps
         beta = resolved.training.beta_kl * (
             1.0 if warmup == 0 else min(1.0, step / warmup)
         )
         optimizer.zero_grad(set_to_none=True)
         with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp_enabled):
-            output = model(*_model_arguments(batch), query_y=batch.query_y, sample_latent=True)
-        losses = lifetime_elbo(
-            {name: value.float() for name, value in output.items()},
-            batch.query_y.float(), batch.query_point_mask, beta,
+            early_output = model(
+                *_model_arguments(early_batch),
+                query_y=early_batch.query_y,
+                sample_latent=True,
+                return_representations=use_consistency,
+            )
+            if use_paired_horizons and late_batch is not None:
+                late_output = model(
+                    *_model_arguments(late_batch),
+                    query_y=late_batch.query_y,
+                    sample_latent=True,
+                    return_representations=use_consistency,
+                )
+            else:
+                late_output = None
+        early_losses = lifetime_elbo(
+            {name: value.float() for name, value in early_output.items()},
+            early_batch.query_y.float(), early_batch.query_point_mask, beta,
         )
-        amp_scaler.scale(losses["loss"]).backward()
+        if use_paired_horizons and late_batch is not None and late_output is not None:
+            late_losses = lifetime_elbo(
+                {name: value.float() for name, value in late_output.items()},
+                late_batch.query_y.float(), late_batch.query_point_mask, beta,
+            )
+            base_loss = 0.5 * (early_losses["loss"] + late_losses["loss"])
+            nll_value = 0.5 * (early_losses["nll"] + late_losses["nll"])
+            kl_value = 0.5 * (early_losses["kl"] + late_losses["kl"])
+        else:
+            base_loss = early_losses["loss"]
+            nll_value = early_losses["nll"]
+            kl_value = early_losses["kl"]
+        consistency_loss = early_losses["loss"].new_zeros(())
+        effective_consistency_weight = 0.0
+        if use_consistency and late_batch is not None and late_output is not None:
+            was_training = model.training
+            model.eval()
+            with torch.autocast(
+                device_type=device.type, dtype=torch.float16, enabled=amp_enabled
+            ):
+                early_prior = model.forward_from_embeddings(
+                    early_output["context_h"], early_batch.context_point_mask,
+                    early_batch.context_y, early_output["query_h"],
+                    early_batch.query_point_mask, query_y=None, sample_latent=False,
+                )
+                late_prior = model.forward_from_embeddings(
+                    late_output["context_h"], late_batch.context_point_mask,
+                    late_batch.context_y, late_output["query_h"],
+                    late_batch.query_point_mask, query_y=None, sample_latent=False,
+                )
+            model.train(was_training)
+            selected = early_batch.query_point_mask.unsqueeze(-1)
+            pointwise = F.smooth_l1_loss(
+                early_prior["mean"].float(),
+                late_prior["mean"].float().detach(),
+                beta=resolved.training.consistency_huber_beta,
+                reduction="none",
+            )
+            consistency_loss = pointwise.masked_select(selected).mean()
+            warmup = resolved.training.consistency_warmup_steps
+            effective_consistency_weight = resolved.training.consistency_weight * (
+                1.0 if warmup == 0 else min(1.0, step / warmup)
+            )
+            total_loss = base_loss + effective_consistency_weight * consistency_loss
+        else:
+            total_loss = base_loss
+        amp_scaler.scale(total_loss).backward()
         amp_scaler.unscale_(optimizer)
         gradient_norm = float(torch.nn.utils.clip_grad_norm_(
             model.parameters(), resolved.training.gradient_clip_norm
@@ -330,16 +440,26 @@ def train_run(
         else:
             amp_scaler.step(optimizer)
             amp_scaler.update()
-        true_values = batch.query_lifetime_cycles.masked_select(batch.query_point_mask)
+        true_values = early_batch.query_lifetime_cycles.masked_select(
+            early_batch.query_point_mask
+        )
+        horizon_text = "|".join(str(task.horizon) for task in tasks)
+        if use_paired_horizons and late_batch is not None:
+            horizon_text = "|".join(
+                f"{early.horizon}->{late.horizon}"
+                for early, late in zip(early_tasks, late_tasks)
+            )
         record: dict[str, Any] = {
             "step": step,
-            "loss": float(losses["loss"].detach().cpu()),
-            "nll": float(losses["nll"].detach().cpu()),
-            "kl": float(losses["kl"].detach().cpu()),
+            "loss": float(total_loss.detach().cpu()),
+            "nll": float(nll_value.detach().cpu()),
+            "kl": float(kl_value.detach().cpu()),
+            "consistency_loss": float(consistency_loss.detach().cpu()),
+            "consistency_weight": effective_consistency_weight,
             "beta_kl": beta,
             "gradient_norm": gradient_norm,
             "optimizer_step_skipped": skipped,
-            "horizons": "|".join(str(task.horizon) for task in tasks),
+            "horizons": horizon_text,
             "context_cells": "|".join(",".join(p.cell_id for p in task.context) for task in tasks),
             "query_cells": "|".join(",".join(p.cell_id for p in task.query) for task in tasks),
             "true_lifetime_min": float(true_values.min().cpu()),
@@ -375,10 +495,12 @@ def train_run(
         records.append(record)
         if step == 1 or step % resolved.training.log_interval == 0:
             logger.info(
-                "step=%d/%d loss=%.7g nll=%.7g kl=%.7g beta=%.5g grad=%.7g "
-                "horizon=%s lifetime=[%.0f,%.0f] skipped=%s",
+                "step=%d/%d loss=%.7g nll=%.7g kl=%.7g consistency=%.7g "
+                "lambda=%.5g beta=%.5g grad=%.7g horizon=%s "
+                "lifetime=[%.0f,%.0f] skipped=%s",
                 step, resolved.training.max_steps, record["loss"], record["nll"],
-                record["kl"], beta, gradient_norm, record["horizons"],
+                record["kl"], record["consistency_loss"],
+                record["consistency_weight"], beta, gradient_norm, record["horizons"],
                 record["true_lifetime_min"], record["true_lifetime_max"], skipped,
             )
         if step % resolved.training.checkpoint_interval == 0:

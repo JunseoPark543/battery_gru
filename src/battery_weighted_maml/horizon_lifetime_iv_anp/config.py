@@ -89,6 +89,11 @@ class TrainingConfig:
     log_interval: int = 10
     use_amp: bool = True
     deterministic: bool = True
+    paired_horizon_training: bool = False
+    consistency_weight: float = 0.0
+    consistency_horizon_gap: int = 20
+    consistency_warmup_steps: int = 1_000
+    consistency_huber_beta: float = 0.25
 
 
 @dataclass
@@ -169,6 +174,28 @@ class LifetimeIVConfig:
         )
         if any(value <= 0 for value in positive):
             raise ValueError("training/evaluation positive values must exceed zero")
+        consistency = self.training
+        if consistency.consistency_weight < 0:
+            raise ValueError("consistency_weight cannot be negative")
+        if consistency.consistency_horizon_gap <= 0:
+            raise ValueError("consistency_horizon_gap must be positive")
+        if consistency.consistency_warmup_steps < 0:
+            raise ValueError("consistency_warmup_steps cannot be negative")
+        if consistency.consistency_huber_beta <= 0:
+            raise ValueError("consistency_huber_beta must be positive")
+        if consistency.consistency_weight > 0 and not consistency.paired_horizon_training:
+            raise ValueError(
+                "positive consistency_weight requires paired_horizon_training"
+            )
+        if consistency.paired_horizon_training:
+            horizon_set = set(horizons)
+            if not any(
+                value + consistency.consistency_horizon_gap in horizon_set
+                for value in horizons
+            ):
+                raise ValueError(
+                    "no task horizon pair matches consistency_horizon_gap"
+                )
         if not 0 < self.evaluation.interval_level < 1:
             raise ValueError("interval_level must lie in (0,1)")
 

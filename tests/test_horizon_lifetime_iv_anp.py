@@ -117,6 +117,21 @@ def test_lifetime_context_and_256_point_iv_prefix(tmp_path: Path) -> None:
         )
     assert config.model.curve_input_dim == 3
 
+    early, late = sampler.sample_training_pair(
+        train, np.random.default_rng(43), horizon_gap=5
+    )
+    assert (early.horizon, late.horizon) == (5, 10)
+    assert [point.cell_id for point in early.context] == [
+        point.cell_id for point in late.context
+    ]
+    assert [point.cell_id for point in early.query] == [
+        point.cell_id for point in late.query
+    ]
+    assert np.allclose(
+        [point.lifetime_cycles for point in early.query],
+        [point.lifetime_cycles for point in late.query],
+    )
+
 
 def test_hierarchical_attention_lifetime_output_and_no_query_label_leakage(
     tmp_path: Path,
@@ -162,6 +177,11 @@ def test_hierarchical_attention_lifetime_output_and_no_query_label_leakage(
 
 def test_one_step_train_and_held_out_evaluation(tmp_path: Path) -> None:
     root, config, _, _, _, _, _, _, _ = _fixture(tmp_path)
+    config.training.paired_horizon_training = True
+    config.training.consistency_weight = 0.1
+    config.training.consistency_horizon_gap = 5
+    config.training.consistency_warmup_steps = 1
+    config.validate()
     run_dir = train_run(
         config, 0, root, max_steps=1, output_root=tmp_path / "runs"
     )
@@ -169,6 +189,9 @@ def test_one_step_train_and_held_out_evaluation(tmp_path: Path) -> None:
     assert (run_dir / "checkpoints/last.pt").is_file()
     history = pd.read_csv(run_dir / "training/history.csv")
     assert len(history) == 1
+    assert np.isfinite(history.loc[0, "consistency_loss"])
+    assert np.isclose(history.loc[0, "consistency_weight"], 0.1)
+    assert "->" in history.loc[0, "horizons"]
     destination = evaluate_checkpoint(
         config, run_dir / "checkpoints/best.pt", root,
         horizons=[5], mc_samples=2,

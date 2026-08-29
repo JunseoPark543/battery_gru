@@ -130,6 +130,78 @@ class LifetimeTaskSampler:
             "could not sample a horizon with enough eligible cells; inspect EOL labels"
         )
 
+    def sample_training_pair(
+        self,
+        train_cells: Sequence[LabeledCell],
+        rng: np.random.Generator,
+        horizon_gap: int,
+    ) -> tuple[LifetimeTask, LifetimeTask]:
+        """Sample two horizons with identical context/query cell identities."""
+        horizon_set = set(self.config.horizons)
+        pairs = [
+            (int(early), int(early + horizon_gap))
+            for early in self.config.horizons
+            if early + horizon_gap in horizon_set
+        ]
+        if not pairs:
+            raise TaskUnavailable(
+                f"no configured horizon pair has gap={horizon_gap}"
+            )
+        required = max(
+            self.config.min_cells_per_task,
+            self.config.context_size_min + self.config.query_size,
+        )
+        for _ in range(self.config.max_resample_attempts):
+            early, late = pairs[int(rng.integers(0, len(pairs)))]
+            late_eligible = self.eligible(train_cells, late)
+            eligible: list[LabeledCell] = []
+            for item in late_eligible:
+                cycles = item.cell.cycle_numbers
+                position = int(np.searchsorted(cycles, early))
+                if position < len(cycles) and int(cycles[position]) == early:
+                    eligible.append(item)
+            if len(eligible) < required:
+                continue
+            maximum_context = min(
+                self.config.context_size_max,
+                len(eligible) - self.config.query_size,
+            )
+            if maximum_context < self.config.context_size_min:
+                continue
+            context_size = int(
+                rng.integers(self.config.context_size_min, maximum_context + 1)
+            )
+            selected = rng.choice(
+                len(eligible),
+                size=context_size + self.config.query_size,
+                replace=False,
+            )
+            context_cells = [eligible[int(index)] for index in selected[:context_size]]
+            query_cells = [eligible[int(index)] for index in selected[context_size:]]
+
+            def build(horizon: int) -> LifetimeTask:
+                task = LifetimeTask(
+                    horizon,
+                    tuple(self.point(item, horizon) for item in context_cells),
+                    tuple(self.point(item, horizon) for item in query_cells),
+                )
+                task.validate()
+                return task
+
+            early_task, late_task = build(early), build(late)
+            if [point.cell_id for point in early_task.context] != [
+                point.cell_id for point in late_task.context
+            ]:
+                raise RuntimeError("paired context identities differ")
+            if [point.cell_id for point in early_task.query] != [
+                point.cell_id for point in late_task.query
+            ]:
+                raise RuntimeError("paired query identities differ")
+            return early_task, late_task
+        raise TaskUnavailable(
+            "could not sample paired horizons with enough common train cells"
+        )
+
     def evaluation(
         self,
         horizon: int,
