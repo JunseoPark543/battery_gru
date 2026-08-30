@@ -77,7 +77,11 @@ def load_experiment(
     scalers = LifetimeIVScalers.fit(train, max(config.task.horizons))
     if scalers.to_dict() != payload["scalers"]:
         raise ValueError("checkpoint train-only scalers differ")
-    store = LifetimeIVPrefixStore(scalers, config.q_grid, max(config.task.horizons))
+    store = LifetimeIVPrefixStore(
+        scalers,
+        config.q_grid,
+        max(max(config.task.horizons), max(config.evaluation.horizons)),
+    )
     sampler = LifetimeTaskSampler(config.task, scalers, store)
     model, spec = build_model(config.model, config.q_grid.num_points)
     if spec.to_dict() != payload["model_spec"]:
@@ -158,6 +162,7 @@ def evaluate_checkpoint(
     output_dir: str | Path | None = None,
     horizons: Sequence[int] | None = None,
     mc_samples: int | None = None,
+    nested_context_selection: bool = False,
 ) -> Path:
     seed_everything(config.seed, config.training.deterministic)
     experiment = load_experiment(config, checkpoint, data_root)
@@ -165,9 +170,14 @@ def evaluate_checkpoint(
     selected_horizons = [int(value) for value in (horizons or config.evaluation.horizons)]
     if not selected_horizons or selected_horizons != sorted(set(selected_horizons)):
         raise ValueError("evaluation horizons must be sorted and unique")
-    if not set(selected_horizons).issubset(config.task.horizons):
-        raise ValueError("evaluation horizons must be trained task horizons")
+    if not set(selected_horizons).issubset(config.evaluation.horizons):
+        raise ValueError("selected horizons must be configured evaluation horizons")
     sample_count = int(mc_samples or config.evaluation.mc_samples)
+    evaluation_seed = (
+        config.evaluation.context_seed
+        if config.evaluation.context_seed is not None
+        else config.seed
+    )
     source = Path(checkpoint).resolve()
     destination = Path(output_dir).resolve() if output_dir else source.parent.parent / "evaluation" / source.stem
     (destination / "plots").mkdir(parents=True, exist_ok=True)
@@ -179,14 +189,16 @@ def evaluate_checkpoint(
         try:
             task = experiment.sampler.evaluation(
                 horizon, experiment.train_cells, experiment.test_cells,
-                context_size=config.evaluation.context_size, seed=config.seed,
+                context_size=config.evaluation.context_size,
+                seed=evaluation_seed,
+                nested_context_selection=nested_context_selection,
             )
         except TaskUnavailable as exc:
             aggregates.append({"horizon": horizon, "status": "skipped", "reason": str(exc)})
             continue
         prediction = predict_task(
             experiment, task, mc_samples=sample_count,
-            seed=config.seed + horizon * 10_007,
+            seed=evaluation_seed + horizon * 10_007,
         )
         true_lifetime = np.asarray([point.lifetime_cycles for point in task.query])
         true_rul = true_lifetime - horizon
@@ -252,6 +264,13 @@ def evaluate_checkpoint(
         "completed_at_utc": datetime.now(timezone.utc).isoformat(),
         "checkpoint": str(source),
         "horizons": selected_horizons,
+        "trained_horizons": config.task.horizons,
+        "evaluation_outside_training_horizons": bool(
+            not set(selected_horizons).issubset(config.task.horizons)
+        ),
+        "context_size": config.evaluation.context_size,
+        "context_seed": evaluation_seed,
+        "nested_context_selection": nested_context_selection,
         "prediction_target": "lifetime",
         "rul_formula": "predicted_lifetime - observation_horizon",
         "query_label_used_as_input": False,
@@ -269,6 +288,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir")
     parser.add_argument("--horizons", nargs="+", type=int)
     parser.add_argument("--mc-samples", type=int)
+    parser.add_argument("--context-size", type=int)
+    parser.add_argument("--context-seed", type=int)
+    parser.add_argument("--nested-context-selection", action="store_true")
     return parser.parse_args()
 
 
@@ -277,10 +299,16 @@ def main() -> None:
     config = load_config(args.config)
     if args.device:
         config.device = args.device
+    if args.context_size is not None:
+        config.evaluation.context_size = args.context_size
+    if args.context_seed is not None:
+        config.evaluation.context_seed = args.context_seed
+    config.validate()
     destination = evaluate_checkpoint(
         config, args.checkpoint, resolve_data_root(config, args.data_root),
         output_dir=args.output_dir, horizons=args.horizons,
         mc_samples=args.mc_samples,
+        nested_context_selection=args.nested_context_selection,
     )
     print(f"Lifetime I-V evaluation: {destination}")
 

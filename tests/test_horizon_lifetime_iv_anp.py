@@ -24,6 +24,10 @@ from battery_weighted_maml.horizon_lifetime_iv_anp.evaluate import evaluate_chec
 from battery_weighted_maml.horizon_lifetime_iv_anp.inference import predict_batch
 from battery_weighted_maml.horizon_lifetime_iv_anp.losses import lifetime_elbo
 from battery_weighted_maml.horizon_lifetime_iv_anp.model import build_model
+from battery_weighted_maml.horizon_lifetime_iv_anp.run_base_grid_suite import (
+    _build_cv_summaries,
+    _build_horizon_summaries,
+)
 from battery_weighted_maml.horizon_lifetime_iv_anp.tasks import (
     LifetimeTaskSampler,
     collate_tasks,
@@ -99,7 +103,7 @@ def _arguments(batch):
 
 
 def test_lifetime_context_and_256_point_iv_prefix(tmp_path: Path) -> None:
-    _, config, audit, split, train, _, _, scalers, sampler = _fixture(tmp_path)
+    _, config, audit, split, train, validation, _, scalers, sampler = _fixture(tmp_path)
     assert (audit["label_status"] == "valid").all()
     assert set(scalers.fit_cell_ids) == set(split.train_cells)
     task = sampler.sample_training(train, np.random.default_rng(42))
@@ -116,6 +120,18 @@ def test_lifetime_context_and_256_point_iv_prefix(tmp_path: Path) -> None:
             scalers.transform_lifetime(point.lifetime_cycles),
         )
     assert config.model.curve_input_dim == 3
+
+    context_two = sampler.evaluation(
+        10, train, validation, context_size=2, seed=123,
+        nested_context_selection=True,
+    )
+    context_three = sampler.evaluation(
+        10, train, validation, context_size=3, seed=123,
+        nested_context_selection=True,
+    )
+    assert [point.cell_id for point in context_two.context] == [
+        point.cell_id for point in context_three.context[:2]
+    ]
 
     early, late = sampler.sample_training_pair(
         train, np.random.default_rng(43), horizon_gap=5
@@ -192,16 +208,35 @@ def test_one_step_train_and_held_out_evaluation(tmp_path: Path) -> None:
     assert np.isfinite(history.loc[0, "consistency_loss"])
     assert np.isclose(history.loc[0, "consistency_weight"], 0.1)
     assert "->" in history.loc[0, "horizons"]
+    config.evaluation.horizons = [5, 10, 15]
+    config.validate()
     destination = evaluate_checkpoint(
         config, run_dir / "checkpoints/best.pt", root,
-        horizons=[5], mc_samples=2,
+        horizons=[5, 15], mc_samples=2,
+        nested_context_selection=True,
     )
     aggregate = pd.read_csv(destination / "aggregate_metrics.csv")
     predictions = pd.read_csv(destination / "per_cell_predictions.csv")
     assert (aggregate["status"] == "ok").all()
+    assert aggregate["horizon"].tolist() == [5, 15]
     assert not predictions["query_label_used_as_input"].any()
     assert np.allclose(
         predictions["predicted_rul_mean_cycles"],
         predictions["predicted_lifetime_mean_cycles"] - predictions["horizon"],
     )
     assert (destination / "plots/metrics_by_horizon.png").is_file()
+    summary_input = pd.DataFrame([{
+        "horizon_scheme": "original",
+        "seed": 42,
+        "learning_rate": 1.0e-4,
+        "fold": 0,
+        "context_size": 3,
+        "best_validation_rmse_cycles": 1.0,
+        "prediction_csv": str(destination / "per_cell_predictions.csv"),
+        "status": "completed",
+    }])
+    cv_seed, grid = _build_cv_summaries(summary_input, expected_folds=1)
+    seed_horizon, horizon_grid = _build_horizon_summaries(summary_input)
+    assert len(cv_seed) == len(grid) == 1
+    assert set(seed_horizon["horizon"]) == {5, 15}
+    assert set(horizon_grid["horizon"]) == {5, 15}

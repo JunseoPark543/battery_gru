@@ -109,10 +109,18 @@ def validation_rmse(
     with torch.no_grad():
         for horizon in config.evaluation.horizons:
             try:
+                context_seed = (
+                    config.evaluation.context_seed
+                    if config.evaluation.context_seed is not None
+                    else config.seed
+                )
                 task = sampler.evaluation(
                     horizon, train_cells, validation_cells,
                     context_size=config.evaluation.context_size,
-                    seed=config.seed + 400_009,
+                    seed=context_seed + 400_009,
+                    nested_context_selection=(
+                        config.evaluation.context_seed is not None
+                    ),
                 )
             except TaskUnavailable as exc:
                 rows.append({"horizon": horizon, "status": "skipped", "reason": str(exc)})
@@ -203,11 +211,15 @@ def train_run(
         raise ValueError(f"fold must lie in [0,{len(splits)-1}]")
     split = splits[fold]
     train_cells, validation_cells, _ = split_cells(cells, split)
-    maximum_horizon = max(resolved.task.horizons)
-    scalers = LifetimeIVScalers.fit(train_cells, maximum_horizon)
+    maximum_training_horizon = max(resolved.task.horizons)
+    scalers = LifetimeIVScalers.fit(train_cells, maximum_training_horizon)
     if set(scalers.fit_cell_ids) != set(split.train_cells):
         raise RuntimeError("scalers were not fit on exactly the train split")
-    store = LifetimeIVPrefixStore(scalers, resolved.q_grid, maximum_horizon)
+    store = LifetimeIVPrefixStore(
+        scalers,
+        resolved.q_grid,
+        max(maximum_training_horizon, max(resolved.evaluation.horizons)),
+    )
     sampler = LifetimeTaskSampler(resolved.task, scalers, store)
     model, spec = build_model(resolved.model, resolved.q_grid.num_points)
 
@@ -243,6 +255,7 @@ def train_run(
             "consistency_warmup_steps", "consistency_huber_beta",
         ):
             saved["training"].setdefault(key, defaults[key])
+        saved["evaluation"].setdefault("context_seed", None)
         saved["training"].pop("max_steps", None)
         current["training"].pop("max_steps", None)
         if saved != current:

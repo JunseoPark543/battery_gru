@@ -81,3 +81,46 @@ python -m battery_weighted_maml.horizon_lifetime_iv_anp.run_consistency_suite \
   --device cuda \
   --baseline-run outputs/horizon_lifetime_iv_anp/BASELINE_RUN
 ```
+
+## Single-horizon baseline grid
+
+This grid keeps paired-horizon training and consistency loss disabled. It
+compares two training-horizon schemes, three random seeds, three learning
+rates, all five folds, and three test context sizes:
+
+- `original`: train horizons `100,120,...,300`.
+- `expanded`: train horizons `60,80,...,600`.
+- Seeds: `42,52,62`.
+- Learning rates: `2.5e-5,5e-5,1e-4`.
+- Test context cells: `8,12,16`, selected as nested sets (`8` is contained in
+  `12`, which is contained in `16`).
+- Both training schemes are evaluated at `60,80,...,600`.
+
+The default grid has 90 training runs. A test context-size change never causes
+retraining. Validation/test context selection is fixed independently of the
+model seed. On one GPU, runs execute sequentially.
+
+```bash
+python -m battery_weighted_maml.horizon_lifetime_iv_anp.run_base_grid_suite \
+  --config configs/matr_horizon_lifetime_iv_anp.yaml \
+  --device cuda \
+  --training-horizon-schemes original expanded \
+  --seeds 42 52 62 \
+  --learning-rates 0.000025 0.00005 0.0001 \
+  --folds 0 1 2 3 4 \
+  --context-sizes 8 12 16 \
+  --evaluation-horizons 60 80 100 120 140 160 180 200 220 240 260 280 300 320 340 360 380 400 420 440 460 480 500 520 540 560 580 600
+```
+
+To resume an interrupted suite, pass its existing directory:
+
+```bash
+python -m battery_weighted_maml.horizon_lifetime_iv_anp.run_base_grid_suite \
+  --config configs/matr_horizon_lifetime_iv_anp.yaml \
+  --device cuda \
+  --suite-dir outputs/horizon_lifetime_iv_anp_grid/suites/SUITE
+```
+
+The suite writes per-run results, pooled five-fold/seed summaries, a context
+comparison plot, and an RMSE-by-horizon plot. Horizons below, within, and above
+the training range are also reported separately.

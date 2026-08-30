@@ -102,6 +102,7 @@ class EvaluationConfig:
         default_factory=lambda: list(range(100, 301, 20))
     )
     context_size: int = 16
+    context_seed: int | None = None
     mc_samples: int = 50
     interval_level: float = 0.95
     mape_epsilon_cycles: float = 1.0
@@ -138,8 +139,13 @@ class LifetimeIVConfig:
         horizons = [int(value) for value in self.task.horizons]
         if not horizons or horizons != sorted(set(horizons)) or horizons[0] < 2:
             raise ValueError("task horizons must be sorted, unique, and >=2")
-        if not set(self.evaluation.horizons).issubset(horizons):
-            raise ValueError("evaluation horizons must be included in task horizons")
+        evaluation_horizons = [int(value) for value in self.evaluation.horizons]
+        if (
+            not evaluation_horizons
+            or evaluation_horizons != sorted(set(evaluation_horizons))
+            or evaluation_horizons[0] < 2
+        ):
+            raise ValueError("evaluation horizons must be sorted, unique, and >=2")
         task = self.task
         if not 1 <= task.context_size_min <= task.context_size_max:
             raise ValueError("invalid context size range")
@@ -198,6 +204,8 @@ class LifetimeIVConfig:
                 )
         if not 0 < self.evaluation.interval_level < 1:
             raise ValueError("interval_level must lie in (0,1)")
+        if self.evaluation.context_seed is not None and self.evaluation.context_seed < 0:
+            raise ValueError("evaluation context_seed cannot be negative")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

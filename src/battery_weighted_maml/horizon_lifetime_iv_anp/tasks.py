@@ -210,6 +210,7 @@ class LifetimeTaskSampler:
         *,
         context_size: int,
         seed: int,
+        nested_context_selection: bool = False,
     ) -> LifetimeTask:
         references = self.eligible(reference_cells, int(horizon))
         queries = self.eligible(query_cells, int(horizon))
@@ -221,7 +222,12 @@ class LifetimeTaskSampler:
         if count < self.config.context_size_min:
             raise TaskUnavailable(f"only {len(references)} reference cells are valid")
         rng = np.random.default_rng(int(seed) + 97_003 * int(horizon))
-        indices = rng.choice(len(references), size=count, replace=False)
+        if nested_context_selection:
+            # A fixed permutation makes context sets nested across sizes:
+            # context(8) is the prefix of context(12), which is the prefix of 16.
+            indices = rng.permutation(len(references))[:count]
+        else:
+            indices = rng.choice(len(references), size=count, replace=False)
         task = LifetimeTask(
             int(horizon),
             tuple(self.point(references[int(index)], horizon) for index in indices),
