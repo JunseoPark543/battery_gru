@@ -1,0 +1,18 @@
+{
+  "created_at_utc": "2026-08-30T22:20:48.801712+00:00",
+  "git_commit": "384ebc2c1f43481d6d8f00414d9aa37067e97ca5",
+  "data_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/MATR",
+  "cells_loaded": 169,
+  "batches": {
+    "b1": 41,
+    "b2": 43,
+    "b3": 40,
+    "b4": 45
+  },
+  "eol_threshold": 0.8,
+  "shared_y_limits": [
+    null,
+    null
+  ],
+  "plot": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/data_analysis/matr_soh_by_batch/matr_soh_trajectories_all_b1_b2_b3_b4.png"
+}
