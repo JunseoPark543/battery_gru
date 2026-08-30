@@ -1,0 +1,15 @@
+{
+  "created_at_utc": "2026-08-30T20:23:45.968358+00:00",
+  "git_commit": "8c8adc76b807e0122c4e128f15f6e06e389d7f5d",
+  "matr_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/MATR",
+  "hust_root": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/data/HUST",
+  "matr_cells_loaded": 169,
+  "hust_cells_loaded": 77,
+  "matr_cutoff_voltage_v": 2.0,
+  "hust_cutoff_voltage_v": 2.0,
+  "endpoint_tolerance_v": 0.01,
+  "minimum_valid_cycles": 20,
+  "edge_fraction": 0.1,
+  "minimum_edge_cycles": 10,
+  "plot": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/data_analysis/matr_vs_hust_cutoff_tail/matr_vs_hust_cutoff_tail_correlations.png"
+}
