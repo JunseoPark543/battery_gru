@@ -1,7 +1,7 @@
 {
   "status": "completed",
-  "completed_at_utc": "2026-08-29T17:11:22.846422+00:00",
-  "checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/horizon_lifetime_iv_anp/20260830_013634_615505_f0_life_iv_anp_s42/checkpoints/best.pt",
+  "completed_at_utc": "2026-08-29T17:48:22.118373+00:00",
+  "checkpoint": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/horizon_lifetime_iv_anp_consistency/suites/20260830_021040_353261_f0/runs/cons_w010_g20/20260830_023628_490194_f0_life_iv_pair-w0p1-g20_s42/checkpoints/best.pt",
   "horizons": [
     100,
     120,

@@ -2,7 +2,7 @@ seed: 42
 device: cuda
 paths:
   data_root: data/MATR
-  output_root: outputs/horizon_lifetime_iv_anp
+  output_root: outputs/horizon_lifetime_iv_anp_consistency
 data:
   dataset: MATR
   file_globs:
@@ -74,7 +74,7 @@ training:
   log_interval: 10
   use_amp: true
   deterministic: true
-  paired_horizon_training: false
+  paired_horizon_training: true
   consistency_weight: 0.0
   consistency_horizon_gap: 20
   consistency_warmup_steps: 1000

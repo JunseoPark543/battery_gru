@@ -1,0 +1,35 @@
+{
+  "status": "completed",
+  "completed_at_utc": "2026-08-29T18:14:17.458313+00:00",
+  "execution": "sequential_single_gpu",
+  "fold": 0,
+  "variants": [
+    {
+      "name": "pair_w0_g20",
+      "weight": 0.0,
+      "gap": 20
+    },
+    {
+      "name": "cons_w005_g20",
+      "weight": 0.05,
+      "gap": 20
+    },
+    {
+      "name": "cons_w010_g20",
+      "weight": 0.1,
+      "gap": 20
+    },
+    {
+      "name": "cons_w020_g20",
+      "weight": 0.2,
+      "gap": 20
+    },
+    {
+      "name": "cons_w010_g40",
+      "weight": 0.1,
+      "gap": 40
+    }
+  ],
+  "failure_count": 0,
+  "summary": "/home/JunseoPark/\ubc14\ud0d5\ud654\uba74/battery_gru/outputs/horizon_lifetime_iv_anp_consistency/suites/20260830_021040_353261_f0/suite_summary.csv"
+}
